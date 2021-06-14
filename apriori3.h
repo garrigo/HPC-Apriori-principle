@@ -161,7 +161,7 @@ class Apriori {
     inline void print_items () {
         for (auto set : itemsets){
             for (auto str : set){
-                std::cout << str <<"-";
+                std::cout << str <<"    ";
             }
             std::cout << "\n";
         }
@@ -169,7 +169,7 @@ class Apriori {
 
     inline void update_single_structures(std::string token){
         single_items.insert(token);
-        hashmap[token]++;       
+        hashmap[token]++;   
     }
 
     void singles_prune(float support){
@@ -281,8 +281,10 @@ class Apriori {
                 std::istringstream iss(doc_buffer);
                 std::string token;
                 while (std::getline(iss, token, ' ')){
-                    line_buffer.push_back(token);
-                    update_single_structures(token);                    
+                    if (!isspace(token[0])){
+                        line_buffer.push_back(token);
+                        update_single_structures(token);         
+                    }           
                 }
                 transactions.push_back(line_buffer);
             }
