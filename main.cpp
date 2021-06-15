@@ -8,9 +8,13 @@ int main (){
     // int c = (b & 00001111) + (b>>4 & 00001111);
     // std::cout << "OUTPUT: " << c << "\n";
     Apriori apriori;
-    apriori.run("chess.dat", 510.0f);
-    // apriori.print_single_items();
-    // apriori.print_items();
+    std::chrono::time_point<std::chrono::system_clock> start, end;
+    start = std::chrono::system_clock::now();
+    apriori.run("chess.dat", 0.80f);
+    end = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end - start;
+    std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
+
 
     return 0;
 }

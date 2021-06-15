@@ -143,7 +143,6 @@ std::vector<std::string> get_items(
 ///////////////////////////////////////////////////////////////////////////
 class Apriori {
     public:
-    size_t lattice_cardinality=0;
     std::vector<std::vector<std::string>> transactions;
     std::vector<std::set<std::string>> itemsets;
     std::unordered_set<std::string> single_items;
@@ -167,6 +166,14 @@ class Apriori {
         }
     }
 
+    inline void print_items (std::set<std::string>& set , std::string& buff) {
+            for (auto str : set){
+                std::cout << str <<"    ";
+            }
+            std::cout << " - Cardinality: " << static_cast<float>(hashmap[buff])/ static_cast<float>(transactions.size()) <<"\n";
+        
+    }
+
     inline void update_single_structures(std::string token){
         single_items.insert(token);
         hashmap[token]++;   
@@ -175,12 +182,12 @@ class Apriori {
     void singles_prune(float support){
         auto item = std::begin(single_items);
         while (item != std::end(single_items)) {
-            if (hashmap[*item] < support)
+            std::cout << *item << " Cardinality: " << hashmap[*item]/transactions.size() << "\n";
+            if (static_cast<float>(hashmap[*item])/static_cast<float>(transactions.size()) < support)
                 item = single_items.erase(item);
             else
                 ++item;
         }
-        lattice_cardinality = single_items.size();
     }
 
     void singles_merge(){
@@ -197,10 +204,43 @@ class Apriori {
         }
     }
 
-    void map (float support){
+    void map (){
         // std::cout << "ENTER MAP\n";
         hashmap.clear();
-        //MAP
+        //for every itemset
+        for (auto& itemset : itemsets){
+                std::string buff;
+                //for every transaction
+            for (auto& tx : transactions){
+                buff.clear();
+                unsigned int found = 0, cont=1;
+                auto item = std::begin (itemset);
+                //for every item in itemset
+                while (cont && item != std::end(itemset) ){
+                    buff+=(*item);
+                    cont = 0;
+                    //for every item in transaction
+                    for (auto& item_tx : tx){
+                        if (*item==item_tx){
+                            found++;
+                            cont = 1;
+                            break;
+                        }
+                    }
+                    item++;
+                }
+                if (found == itemset.size()){
+                    hashmap[buff]++;
+                }
+
+            }
+        }
+        // std::cout << "EXIT MAP\n";
+    }
+
+/*     void map (){
+        // std::cout << "ENTER MAP\n";
+        hashmap.clear();
         //for every transaction
         for (auto& tx : transactions){
             //for every itemset
@@ -229,7 +269,8 @@ class Apriori {
             }
         }
         // std::cout << "EXIT MAP\n";
-    }
+    } */
+
     void prune(float support) {
         //PRUNE
         // std::cout << "ENTER PRUNE\n";
@@ -242,7 +283,8 @@ class Apriori {
                 buff += (*item);
                 item++;
             }
-            if (hashmap[buff] < support)
+            print_items(*itemset, buff);
+            if (static_cast<float>(hashmap[buff])/ static_cast<float>(transactions.size()) < support)
                 itemset = itemsets.erase(itemset);
             else
                 ++itemset;
@@ -253,16 +295,18 @@ class Apriori {
 
     void merge (int k){
         // std::cout << "ENTER MERGE\n";
-        std::set<std::set<std::string>> temp;
-        for (int itemset_x=0; itemset_x<itemsets.size()-1; itemset_x++){
-            for (int itemset_y=itemset_x+1; itemset_y<itemsets.size(); itemset_y++){
-                std::set<std::string> merged(itemsets[itemset_x]);
-                merged.insert(itemsets[itemset_y].begin(), itemsets[itemset_y].end());
-                if (merged.size() == k)
-                    temp.insert(merged);
+        if (!itemsets.empty()){
+            std::set<std::set<std::string>> temp;
+            for (int itemset_x=0; itemset_x<itemsets.size()-1; itemset_x++){
+                for (int itemset_y=itemset_x+1; itemset_y<itemsets.size(); itemset_y++){
+                    std::set<std::string> merged(itemsets[itemset_x]);
+                    merged.insert(itemsets[itemset_y].begin(), itemsets[itemset_y].end());
+                    if (merged.size() == k)
+                        temp.insert(merged);
+                }
             }
+            itemsets.assign( temp.begin(), temp.end() );
         }
-        itemsets.assign( temp.begin(), temp.end() );
         // std::cout << "EXIT MERGE\n";
     }
 
@@ -295,11 +339,11 @@ class Apriori {
         singles_prune(support);
         singles_merge();
         print_single_items();
+        print_items();
         while (!itemsets.empty()){     
-            map(support);
+            map();
             prune(support);
             merge(k);
-            print_items();
             k++;
         }
     }
