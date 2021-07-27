@@ -60,6 +60,7 @@
         "map": "cpp",
         "unordered_map": "cpp",
         "unordered_set": "cpp",
-        "xhash": "cpp"
+        "xhash": "cpp",
+        "bitset": "cpp"
     }
 }
