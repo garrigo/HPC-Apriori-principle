@@ -12,33 +12,32 @@
 #include <bitset>
 #include <omp.h>
 
+using IndexType = unsigned int;
 
 struct VectorHash {
-    inline size_t operator()(const std::vector<unsigned int>& v) const {
-        std::hash<unsigned int> hasher;
-        size_t seed = 0;
-        for (unsigned int i : v) {
+    inline IndexType operator()(const std::vector<IndexType>& v) const {
+        std::hash<IndexType> hasher;
+        IndexType seed = 0;
+        for (IndexType i : v) {
             seed ^= hasher(i) + 0x9e3779b9 + (seed<<6) + (seed>>2);
         }
         return seed;
     }
 };
 
-using MySet = std::unordered_set<std::vector<unsigned int>, VectorHash>;
+using U_VectorSet = std::unordered_set<std::vector<IndexType>, VectorHash>;
 
 
 class Apriori {
     public:
-    std::vector<std::vector<unsigned int>> transactions;
-    MySet itemsets;
+    std::vector<std::vector<IndexType>> transactions;
+    U_VectorSet itemsets;
     std::vector<std::string> single_items;
-    std::vector<unsigned int> occurrencies;
+    std::vector<IndexType> occurrencies;
     
 
-    int i = sizeof(unsigned int);
-
     inline void print_single_items (){
-        for (size_t i=0; i<single_items.size(); i++)
+        for (IndexType i=0; i<single_items.size(); i++)
             std::cout <<"Element: " << single_items[i] << " - Cardinality: "<< occurrencies[i] << "\n";
         std::cout << "SINGLE ITEMS Total size: " << single_items.size() << "\n";
     }
@@ -54,7 +53,6 @@ class Apriori {
     }
 
 
-
     void read_data (const std::string input_file) {
         std::ifstream ifs;
         ifs.open(input_file);
@@ -64,17 +62,16 @@ class Apriori {
             }
             std::string doc_buffer;
             std::vector<std::vector<std::string>> result;
-            size_t current_size=0;
+            IndexType current_size=0;
             while(!getline(ifs, doc_buffer).eof()){
-                std::vector<unsigned int> line_buffer;
+                std::vector<IndexType> line_buffer;
                 std::istringstream iss(doc_buffer);
                 std::string token;
 
                 while (std::getline(iss, token, ' ')){
                     if (!isspace(token[0])){
                         bool clear=1;
-                        // hashmap[token]++;
-                        for (size_t i=0; i<single_items.size(); i++){
+                        for (IndexType i=0; i<single_items.size(); i++){
                             if (single_items[i]==token){
                                 clear=0;
                                 line_buffer.push_back(i);
@@ -82,6 +79,7 @@ class Apriori {
                                     occurrencies.resize(i+1);
                                 occurrencies[i]++;
                                 i=single_items.size();
+                                break;
                             }
                         }
                         if (clear) { 
@@ -97,15 +95,15 @@ class Apriori {
        
     }
 
-    void singles_prune(float support){
+    void singles_prune(double support){
     }
 
-    void singles_merge(float support){
+    void singles_merge(double support){
         
-        for (unsigned int i = 0; i<single_items.size()-1; i++){
-            if ((static_cast<float>(occurrencies[i]) / (static_cast<float>(transactions.size()))) >=support)
-                for (unsigned int j = i+1; j<single_items.size(); j++){
-                    if ((static_cast<float>(occurrencies[j]) / (static_cast<float>(transactions.size()))) >=support){
+        for (IndexType i = 0; i<single_items.size()-1; i++){
+            if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(transactions.size()))) >=support)
+                for (IndexType j = i+1; j<single_items.size(); j++){
+                    if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(transactions.size()))) >=support){
                         itemsets.insert({i,j});
                     }
                 }
@@ -113,35 +111,20 @@ class Apriori {
     }
 
 
-    inline bool binary_search (unsigned int item, std::vector<unsigned int> vec){
-        unsigned int left=0, right=vec.size()-1, center = right/2;
-        while (vec[center]!=item && right>left){
-            if (vec[center]>item)
-                right = center-1;
-            else
-                left = center+1;
-            center = (right+left)/2;
-        }
-        if (vec[center]==item)
-            return true;
-        return false;
-    }
-
-    void map (unsigned int k){
+    void map (IndexType k){
         // std::cout << "ENTER MAP\n";
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
 
         occurrencies.resize(itemsets.size());
-        // hashmap.clear();
         //for every itemset
-        size_t occ = 0;
+        IndexType occ = 0;
         for (const auto set : itemsets){
             occurrencies[occ]=0;
             //for every transaction
             for (auto& tx : transactions){
                 if (tx.size()>=k){
-                    unsigned int found = 0, cont=1, tx_cursor=0;
+                    IndexType found = 0, cont=1, tx_cursor=0;
                     auto item = set.begin();
                     //for every item in itemset
                     while (cont && item != set.end() ){
@@ -153,14 +136,13 @@ class Apriori {
                             // }
                             // else 
                             if ((*item)==(tx[tx_cursor])){
-                            // if (binary_search (*item, tx)){
-                                found++;
+                                ++found;
                                 cont = 1;
                             }
 
                             ++tx_cursor;
                         }
-                        item++;
+                        ++item;
                     }
                     if (found == set.size()){
                         occurrencies[occ]++;
@@ -177,15 +159,15 @@ class Apriori {
         // std::cout << "EXIT MAP\n";
     }
 
-    void prune (float support){
+    void prune (double support){
         std::cout << "ITEMSETS BEFORE PRUNING: " << itemsets.size() << "\n";
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();        
-        size_t occ = 0;
-        size_t size = transactions.size();
+        IndexType occ = 0;
+        IndexType size = transactions.size();
         auto item_set = std::begin(itemsets);
         while (item_set != std::end(itemsets)){
-            if ((static_cast<float>(occurrencies[occ]) / (static_cast<float>(size))) < support){
+            if ((static_cast<double>(occurrencies[occ]) / (static_cast<double>(size))) < support){
                 item_set = itemsets.erase(item_set);
             }
             else
@@ -194,11 +176,11 @@ class Apriori {
         }
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
-        std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
+        std::cout <<  "Prune time: " << elapsed_seconds.count() << "s\n";
         std::cout << "ITEMSETS AFTER PRUNING: " << itemsets.size() << "\n";
     }
 
-    void merge (int k){
+    void merge (int k, double support){
         // std::cout << "ENTER MERGE\n";
 
         std::chrono::time_point<std::chrono::system_clock> start, end;
@@ -206,41 +188,53 @@ class Apriori {
 
         if (!itemsets.empty()){
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
-            MySet temp;
+            U_VectorSet temp;
             //for every itemset, try to unite it with another in the itemsets vector
             auto itemset_x = itemsets.begin();
+            IndexType occ = 0;
+            IndexType size = transactions.size();
             
             while (itemset_x!=itemsets.end()){
                 auto itemset_y=itemset_x;
                 itemset_y++;
-                    while (itemset_y!=itemsets.end()){       
-                        std::vector<unsigned int> merged(k);
-                        unsigned int m=0, v1=0, v2=0, distance=0;
-                        while (distance<3 && m<k){
-                            if (v2==k-1 || (v1!=k-1 && (*itemset_x)[v1] < (*itemset_y)[v2])){
-                                merged[m] = (*itemset_x)[v1];
-                                ++v1;
-                                ++distance;
+                IndexType occy = occ+1;
+                // if ((static_cast<double>(occurrencies[occ]) / (static_cast<double>(size))) >= support)
+                    {
+                    while (itemset_y!=itemsets.end()){   
+                        // if ((static_cast<double>(occurrencies[occy]) / (static_cast<double>(size))) >= support)  
+                        {
+                            std::vector<IndexType> merged(k);
+                            IndexType m=0, v1=0, v2=0, distance=0;
+                            while (distance<3 && m<k){
+                                if (v2==k-1 || (v1!=k-1 && (*itemset_x)[v1] < (*itemset_y)[v2])){
+                                    merged[m] = (*itemset_x)[v1];
+                                    ++v1;
+                                    ++distance;
+                                }
+                                else if (v1==k-1 || (v2!=k-1 && (*itemset_x)[v1] > (*itemset_y)[v2])){
+                                    merged[m] = (*itemset_y)[v2];
+                                    ++v2;
+                                    ++distance;
+                                }
+                                else {
+                                    merged[m] = (*itemset_y)[v2];
+                                    ++v1;
+                                    ++v2;
+                                }
+                                ++m;
                             }
-                            else if (v1==k-1 || (v2!=k-1 && (*itemset_x)[v1] > (*itemset_y)[v2])){
-                                merged[m] = (*itemset_y)[v2];
-                                ++v2;
-                                ++distance;
-                            }
-                            else {
-                                merged[m] = (*itemset_y)[v2];
-                                ++v1;
-                                ++v2;
-                            }
-                            ++m;
+                            if (distance==2)
+                                temp.insert(merged);
                         }
-                        if (distance==2)
-                            temp.insert(merged);
+                        ++occy;
                         itemset_y++;
+                        
                     }
-                ++itemset_x;
+                }
+                ++itemset_x; ++occ;
             }
             itemsets = temp;
+            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
 
         end = std::chrono::system_clock::now();
@@ -249,7 +243,7 @@ class Apriori {
     }
 
 
-    void run (const std::string input_file, float support){
+    void run (const std::string input_file, double support){
         int k=2;
         read_data(input_file);
         singles_merge(support);
@@ -260,8 +254,8 @@ class Apriori {
             map(k);
             prune(support);
             ++k;
-            merge(k);
-            std::cout << "EXIT PASS N° " << k << "\n\n";
+            merge(k, support);
+            std::cout << "EXIT PASS N° " << k-1 << "\n\n";
             // print_items();
             
             

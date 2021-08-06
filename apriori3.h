@@ -42,7 +42,7 @@ class Apriori {
             for (auto str : set){
                 std::cout << str <<"    ";
             }
-            std::cout << " - Cardinality: " << static_cast<float>(hashmap[buff])/ static_cast<float>(transactions.size()) <<"\n";
+            std::cout << " - Cardinality: " << static_cast<double>(hashmap[buff])/ static_cast<double>(transactions.size()) <<"\n";
         
     }
 
@@ -75,11 +75,11 @@ class Apriori {
             }
     }
 
-    void singles_prune(float support){
+    void singles_prune(double support){
         auto item = std::begin(single_items);
         while (item != std::end(single_items)) {
             std::cout << *item << " Cardinality: " << hashmap[*item]/transactions.size() << "\n";
-            if (static_cast<float>(hashmap[*item])/static_cast<float>(transactions.size()) < support)
+            if (static_cast<double>(hashmap[*item])/static_cast<double>(transactions.size()) < support)
                 item = single_items.erase(item);
             else
                 ++item;
@@ -186,7 +186,7 @@ std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
         // std::cout << "EXIT MAP\n";
     } */
 
-    void prune(float support) {
+    void prune(double support) {
         //PRUNE
         // std::cout << "ENTER PRUNE\n";
         std::cout << "ITEMSETS BEFORE PRUNING: " << itemsets.size() << "\n";
@@ -201,7 +201,7 @@ std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
                 item++;
             }
             // print_items(*itemset, buff);
-            if (static_cast<float>(hashmap[buff])/ static_cast<float>(transactions.size()) < support)
+            if (static_cast<double>(hashmap[buff])/ static_cast<double>(transactions.size()) < support)
                 itemset = itemsets.erase(itemset);
             else
                 ++itemset;
@@ -265,7 +265,7 @@ std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
     }
 
 
-    void run (const std::string input_file, float support){
+    void run (const std::string input_file, double support){
         int k=3;
         read_data(input_file);
         singles_prune(support);
