@@ -12,7 +12,7 @@ int main (){
     Apriori apriori;
     std::chrono::time_point<std::chrono::system_clock> start, end;
     start = std::chrono::system_clock::now();
-    apriori.run("chess.dat", 0.80f);
+    apriori.run("chess.dat", 0.70f);
     end = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed_seconds = end - start;
     std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";

@@ -144,7 +144,7 @@ class Apriori {
                         }
                         ++item;
                     }
-                    if (found == set.size()){
+                    if (found == k){
                         occurrencies[occ]++;
                     }
                 }
@@ -160,7 +160,7 @@ class Apriori {
     }
 
     void prune (double support){
-        std::cout << "ITEMSETS BEFORE PRUNING: " << itemsets.size() << "\n";
+        // std::cout << "ITEMSETS BEFORE PRUNING: " << itemsets.size() << "\n";
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();        
         IndexType occ = 0;
@@ -176,8 +176,8 @@ class Apriori {
         }
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
-        std::cout <<  "Prune time: " << elapsed_seconds.count() << "s\n";
-        std::cout << "ITEMSETS AFTER PRUNING: " << itemsets.size() << "\n";
+        // std::cout <<  "Prune time: " << elapsed_seconds.count() << "s\n";
+        // std::cout << "ITEMSETS AFTER PRUNING: " << itemsets.size() << "\n";
     }
 
     void merge (int k, double support){
@@ -191,47 +191,38 @@ class Apriori {
             U_VectorSet temp;
             //for every itemset, try to unite it with another in the itemsets vector
             auto itemset_x = itemsets.begin();
-            IndexType occ = 0;
             IndexType size = transactions.size();
-            
             while (itemset_x!=itemsets.end()){
                 auto itemset_y=itemset_x;
                 itemset_y++;
-                IndexType occy = occ+1;
-                // if ((static_cast<double>(occurrencies[occ]) / (static_cast<double>(size))) >= support)
-                    {
-                    while (itemset_y!=itemsets.end()){   
-                        // if ((static_cast<double>(occurrencies[occy]) / (static_cast<double>(size))) >= support)  
-                        {
-                            std::vector<IndexType> merged(k);
-                            IndexType m=0, v1=0, v2=0, distance=0;
-                            while (distance<3 && m<k){
-                                if (v2==k-1 || (v1!=k-1 && (*itemset_x)[v1] < (*itemset_y)[v2])){
-                                    merged[m] = (*itemset_x)[v1];
-                                    ++v1;
-                                    ++distance;
-                                }
-                                else if (v1==k-1 || (v2!=k-1 && (*itemset_x)[v1] > (*itemset_y)[v2])){
-                                    merged[m] = (*itemset_y)[v2];
-                                    ++v2;
-                                    ++distance;
-                                }
-                                else {
-                                    merged[m] = (*itemset_y)[v2];
-                                    ++v1;
-                                    ++v2;
-                                }
-                                ++m;
+                while (itemset_y!=itemsets.end()){   
+                        std::vector<IndexType> merged(k);
+                        IndexType m=0, v1=0, v2=0, distance=0;
+                        while (distance<3 && m<k){
+                            if (v2==k-1 || (v1!=k-1 && (*itemset_x)[v1] < (*itemset_y)[v2])){
+                                merged[m] = (*itemset_x)[v1];
+                                ++v1;
+                                ++distance;
                             }
-                            if (distance==2)
-                                temp.insert(merged);
+                            else if (v1==k-1 || (v2!=k-1 && (*itemset_x)[v1] > (*itemset_y)[v2])){
+                                merged[m] = (*itemset_y)[v2];
+                                ++v2;
+                                ++distance;
+                            }
+                            else {
+                                merged[m] = (*itemset_y)[v2];
+                                ++v1;
+                                ++v2;
+                            }
+                            ++m;
                         }
-                        ++occy;
-                        itemset_y++;
-                        
-                    }
+                        if (distance==2)
+                            temp.insert(merged);
+                    itemset_y++;
+                    
                 }
-                ++itemset_x; ++occ;
+                
+                ++itemset_x;
             }
             itemsets = temp;
             std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";

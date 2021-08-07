@@ -165,40 +165,19 @@ class Apriori {
         // std::cout << "EXIT MAP\n";
     }
 
-    void prune (float support){
-        // std::cout << "ITEMSETS BEFORE PRUNING: " << itemsets.size() << "\n";
-        // std::chrono::time_point<std::chrono::system_clock> start, end;
-        // start = std::chrono::system_clock::now();        
-        // IndexType occ = 0;
-        // IndexType size = transactions.size();
-        // auto item_set = std::begin(itemsets);
-        // while (item_set != std::end(itemsets)){
-        //     if ((static_cast<float>(occurrencies[occ]) / (static_cast<float>(size))) < support){
-        //         item_set = itemsets.erase(item_set);
-        //     }
-        //     else
-        //         ++item_set;
-        //     ++occ;
-        // }
-        // end = std::chrono::system_clock::now();
-        // std::chrono::duration<double> elapsed_seconds = end - start;
-        // std::cout <<  "Prune time: " << elapsed_seconds.count() << "s\n";
-        // std::cout << "ITEMSETS AFTER PRUNING: " << itemsets.size() << "\n";
-    }
 
     void merge (unsigned int k, double support){
         // std::cout << "ENTER MERGE\n";
 
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
+
         if (!itemsets.empty()){
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
             U_VectorSet temp;
             IndexType size = transactions.size();
             //for every itemset, try to unite it with another in the itemsets vector
             // #pragma omp parallel num_threads(4)
-
-            // std::cout << "OCCURRENCIES SIZE: " << occurrencies.size() << "\n";
             #pragma omp parallel num_threads(4)
             for (IndexType i=0; i<itemsets.size()-1; i++){
                 if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
@@ -228,7 +207,7 @@ class Apriori {
                                     ++m;
                                 }
                                 if (distance==2){
-                                    #pragma omp critical (write_temp)
+                                    #pragma omp critical (merge_write)
                                     {temp.insert(merged);}
                                 }
                             }
@@ -238,8 +217,12 @@ class Apriori {
                     }
                 }
             }
-            itemsets.resize(temp.size()); int i=0;
-            for(auto& element : temp){ itemsets[i] = element; ++i;}
+            itemsets.resize(temp.size());
+            IndexType i=0;
+            for(auto& element : temp){
+                itemsets[i] = element;
+                ++i;
+            }
             std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
 
@@ -258,7 +241,6 @@ class Apriori {
         while (!itemsets.empty()){     
             std::cout << "ENTER PASS N° " << k << "\n";   
             map(k);
-            prune(support);
             ++k;
             merge(k, support);
             std::cout << "EXIT PASS N° " << k-1 << "\n\n";
