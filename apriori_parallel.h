@@ -18,42 +18,40 @@
 using IndexType = unsigned int;
 constexpr unsigned int byte_size=sizeof(IndexType);
 
-struct VectorHash {
-    inline IndexType operator()(const std::vector<IndexType>& v) const {
-        std::hash<IndexType> hasher;
-        IndexType seed = 0;
-        for (IndexType i : v) {
-            seed ^= hasher(i) + 0x9e3779b9 + (seed<<6) + (seed>>2);
-        }
-        return seed;
-    }
-};
 
-using U_VectorSet = std::unordered_set<std::vector<IndexType>, VectorHash>;
-
-
-class Apriori {
-    public:
+class ParallelApriori {
     std::vector<std::vector<IndexType>> transactions;
     std::vector<std::vector<IndexType>> itemsets;
     std::vector<std::string> single_items;
     std::vector<IndexType> occurrencies;
-    
+
+    struct VectorHash {
+        inline IndexType operator()(const std::vector<IndexType>& v) const {
+            std::hash<IndexType> hasher;
+            IndexType seed = 0;
+            for (IndexType i : v) {
+                seed ^= hasher(i) + 0x9e3779b9 + (seed<<6) + (seed>>2);
+            }
+            return seed;
+        }
+    };
+    using U_VectorSet = std::unordered_set<std::vector<IndexType>, VectorHash>;
 
     inline void print_single_items (){
-        for (IndexType i=0; i<single_items.size(); i++)
-            std::cout <<"Element: " << single_items[i] << " - Cardinality: "<< occurrencies[i] << "\n";
-        std::cout << "SINGLE ITEMS Total size: " << single_items.size() << "\n";
+        for (IndexType i=0; i<single_items.size(); i++){
+            //std::cout <<"Element: " << single_items[i] << " - Cardinality: "<< occurrencies[i] << "\n";
+        }
+        //std::cout << "SINGLE ITEMS Total size: " << single_items.size() << "\n";
     }
 
     inline void print_items () {
         for (auto set : itemsets){
             for (auto index : set){
-                std::cout << single_items[index] <<"    ";
+                //std::cout << single_items[index] <<"    ";
             }
-            std::cout << "\n";
+            //std::cout << "\n";
         }
-        std::cout << "ITEMSETS total size: " << itemsets.size() << "\n";
+        //std::cout << "ITEMSETS total size: " << itemsets.size() << "\n";
     }
 
 
@@ -61,7 +59,7 @@ class Apriori {
         std::ifstream ifs;
         ifs.open(input_file);
             if(!ifs) {
-                std::cout << "Input file could not be opened\n";
+                //std::cout << "Input file could not be opened\n";
                 exit(0);
             }
             std::string doc_buffer;
@@ -117,25 +115,27 @@ class Apriori {
             }
         }
     }
-/* 
-    void map (IndexType k, bool parallel=1){
-        // std::cout << "ENTER MAP\n";
+
+    void map1 (IndexType k, bool parallel=1){
+        // //std::cout << "ENTER MAP\n";
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
 
         const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
-        // occurrencies.resize(itemsets.size());
-        occurrencies = std::move(std::vector<IndexType>(itemsets.size(), 0));
+        occurrencies.resize(itemsets.size());
+        // occurrencies = std::move(std::vector<IndexType>(itemsets.size(), 0));
         //for every itemset
         #pragma omp parallel 
-        for (IndexType tx=0; tx<transactions.size(); tx++){
+        
+        for (IndexType set=0; set<itemsets.size(); set++){
         // for (IndexType set=0; set<itemsets.size(); set++){
         // for (const auto set : itemsets){
-            // occurrencies[set]=0;
+            #pragma omp single
+            {occurrencies[set]=0;}
             //for every transaction
-            #pragma omp for schedule(static)
+            #pragma omp for schedule(static) nowait
 
-            for (IndexType set=0; set<itemsets.size(); set++){
+            for (IndexType tx=0; tx<transactions.size(); tx++){
                 // if (transactions[tx].size()>=k){
                     IndexType found = 0, cont=1, tx_cursor=0;
                     auto item = itemsets[set].begin();
@@ -163,32 +163,30 @@ class Apriori {
                     }
                 // }
             }
-            if (tx%cache_regulator==0){
+            if (set%10000==0){
                 #pragma omp barrier
             }
         }
 
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
-        std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
+        //std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
 
-        // std::cout << "EXIT MAP\n";
+        // //std::cout << "EXIT MAP\n";
     }
-     */
+    
     void map (IndexType k, bool parallel=1){
-        // std::cout << "ENTER MAP\n";
+        // //std::cout << "ENTER MAP\n";
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
 
         const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
         occurrencies.resize(itemsets.size());
         //for every itemset
-        #pragma omp parallel for
+        #pragma omp parallel for 
         for (IndexType set=0; set<itemsets.size(); set++){
-        // for (const auto set : itemsets){
             occurrencies[set]=0;
             //for every transaction
-            // #pragma omp for schedule(static)
             for (IndexType tx=0; tx<transactions.size(); tx++){
                 if (transactions[tx].size()>=k){
                     IndexType found = 0, cont=1, tx_cursor=0;
@@ -196,7 +194,7 @@ class Apriori {
                     //for every item in itemset
                     while (cont && item != itemsets[set].end() ){
                         cont = 0;
-                        //for every item in transaction
+                        //for every item in a transaction
                         while (!cont && tx_cursor<transactions[tx].size()){
                             // if ((*item)<(tx[tx_cursor])){
                             //     tx_cursor=tx.size();
@@ -216,21 +214,18 @@ class Apriori {
                     }
                 }
             }
-            if (set%cache_regulator==0){
-                // #pragma omp barrier
-            }
         }
 
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
-        std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
+        //std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
 
-        // std::cout << "EXIT MAP\n";
+        // //std::cout << "EXIT MAP\n";
     }
 
 
     void merge (unsigned int k, double support){
-        // std::cout << "ENTER MERGE\n";
+        // //std::cout << "ENTER MERGE\n";
 
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
@@ -239,14 +234,15 @@ class Apriori {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
             U_VectorSet temp;
             IndexType size = transactions.size();
-        const IndexType cache_regulator = std::max((500000/byte_size*(k-1)), (unsigned int)1);
+            // const IndexType cache_regulator = std::max((500000/byte_size*(k-1)), (unsigned int)1);
             //for every itemset, try to unite it with another in the itemsets vector
-            // #pragma omp parallel num_threads(4)
-            #pragma omp parallel
+
+            // #pragma omp parallel
+            #pragma omp parallel for schedule(dynamic)
             for (IndexType i=0; i<itemsets.size()-1; i++){
                 if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                 {
-                    #pragma omp for schedule(static) nowait
+                    // #pragma omp for schedule(static) nowait
                         for(IndexType j=i+1; j<itemsets.size(); j++){    
                             if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {   
@@ -276,9 +272,9 @@ class Apriori {
                                 }
                             }
                         }
-                    if (i%cache_regulator == 0){
-                        #pragma omp barrier
-                    }
+                    // if (i%cache_regulator == 0){
+                    //     #pragma omp barrier
+                    // }
                 }
             }
             itemsets.resize(temp.size());
@@ -287,15 +283,15 @@ class Apriori {
                 itemsets[i] = element;
                 ++i;
             }
-            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            //std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
 
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
-        std::cout <<  "Merge time: " << elapsed_seconds.count() << "s\n";
+        //std::cout <<  "Merge time: " << elapsed_seconds.count() << "s\n";
     }
 
-
+public:
     void run (const std::string & input_file, double support){
         unsigned int k=2;
         read_data(input_file);
@@ -303,11 +299,11 @@ class Apriori {
         // print_single_items();
         // print_items();
         while (!itemsets.empty()){     
-            std::cout << "ENTER PASS N° " << k << "\n";   
+            //std::cout << "ENTER PASS N° " << k << "\n";   
             map(k);
             ++k;
             merge(k, support);
-            std::cout << "EXIT PASS N° " << k-1 << "\n\n";
+            //std::cout << "EXIT PASS N° " << k-1 << "\n\n";
         }
     }
 };
