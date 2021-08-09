@@ -229,7 +229,7 @@ class Apriori {
                 ++itemset_x;
             }
             itemsets = temp;
-            //std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
 
         end = std::chrono::system_clock::now();

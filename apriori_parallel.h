@@ -121,21 +121,24 @@ class ParallelApriori {
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
 
-        const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
+        const IndexType cache_regulator = std::max((200000/byte_size*(unsigned int)transactions[0].size()), (unsigned int)1);
         occurrencies.resize(itemsets.size());
-        // occurrencies = std::move(std::vector<IndexType>(itemsets.size(), 0));
+        // occurrencies = std::vector<IndexType>(itemsets.size(), 0);
+        #pragma omp parallel for
+        for (IndexType i=0; i<occurrencies.size(); i++)
+            occurrencies[i]=0;
         //for every itemset
         #pragma omp parallel 
         
-        for (IndexType set=0; set<itemsets.size(); set++){
+        for (IndexType tx=0; tx<transactions.size(); tx++){
         // for (IndexType set=0; set<itemsets.size(); set++){
         // for (const auto set : itemsets){
-            #pragma omp single
-            {occurrencies[set]=0;}
+            // #pragma omp single
+            // {occurrencies[set]=0;}
             //for every transaction
             #pragma omp for schedule(static) nowait
-
-            for (IndexType tx=0; tx<transactions.size(); tx++){
+            for (IndexType set=0; set<itemsets.size(); set++){
+            // for (IndexType tx=0; tx<transactions.size(); tx++){
                 // if (transactions[tx].size()>=k){
                     IndexType found = 0, cont=1, tx_cursor=0;
                     auto item = itemsets[set].begin();
@@ -145,7 +148,7 @@ class ParallelApriori {
                         //for every item in transaction
                         while (!cont && tx_cursor<transactions[tx].size()){
                             if ((*item)<(transactions[tx][tx_cursor])){
-                                tx_cursor=transactions[tx].size();
+                                break;
                             }
                             else 
                             if ((*item)==(transactions[tx][tx_cursor])){
@@ -163,7 +166,7 @@ class ParallelApriori {
                     }
                 // }
             }
-            if (set%10000==0){
+            if (tx%cache_regulator==0){
                 #pragma omp barrier
             }
         }
@@ -232,7 +235,8 @@ class ParallelApriori {
 
         if (!itemsets.empty()){
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
-            U_VectorSet temp;
+            std::set<std::vector<IndexType>> temp;
+            std::vector<std::vector<IndexType>> v_temp;
             IndexType size = transactions.size();
             IndexType itemsets_size = itemsets.size();
             // const IndexType cache_regulator = std::max((500000/byte_size*(k-1)), (unsigned int)1);
@@ -269,7 +273,10 @@ class ParallelApriori {
                                 }
                                 if (distance==2){
                                     #pragma omp critical (merge_write)
-                                    {temp.insert(merged);}
+                                    {
+                                        if (temp.insert(merged).second)
+                                            v_temp.push_back(merged);
+                                    }
                                 }
                             }
                         }
@@ -278,13 +285,15 @@ class ParallelApriori {
                     // }
                 }
             }
-            itemsets.resize(temp.size());
-            IndexType i=0;
-            for(auto& element : temp){
-                itemsets[i] = element;
-                ++i;
-            }
-            //std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            itemsets=v_temp;
+            // itemsets.resize(temp.size(), std::vector<IndexType>(k));
+            // IndexType i=0;
+            // for(auto& element : temp){
+            //     // #pragma omp task firstprivate(i)
+            //     {itemsets[i] = element;}
+            //     ++i;
+            // }
+            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
 
         end = std::chrono::system_clock::now();
@@ -301,7 +310,7 @@ public:
         // print_items();
         while (!itemsets.empty()){     
             //std::cout << "ENTER PASS N° " << k << "\n";   
-            map(k);
+            map1(k);
             ++k;
             merge(k, support);
             //std::cout << "EXIT PASS N° " << k-1 << "\n\n";
