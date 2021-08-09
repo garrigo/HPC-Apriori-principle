@@ -55,7 +55,7 @@ class ParallelApriori {
     }
 
 
-    void read_data (const std::string input_file, bool parallel=1) {
+    void read_data (const std::string input_file) {
         std::ifstream ifs;
         ifs.open(input_file);
             if(!ifs) {
@@ -98,25 +98,25 @@ class ParallelApriori {
     }
 
 
-    void singles_merge(double support, bool parallel=1){
-        const IndexType size = transactions.size();
-        const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
-        #pragma parallel for
-        for (IndexType i = 0; i<single_items.size()-1; i++){
-            if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >=support)
-                #pragma omp for schedule(static) nowait
-                for (IndexType j = i+1; j<single_items.size(); j++){
-                    if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >=support){
+    void singles_merge(double support){
+        const IndexType tx_size = transactions.size(), single_size = single_items.size();
+        // const IndexType cache_regulator = std::max((500000/byte_size), 1U);
+        #pragma parallel for schedule(dynamic,1)
+        for (IndexType i = 0; i<single_size-1; i++){
+            if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(tx_size))) >=support)
+                // #pragma omp for schedule(static) nowait
+                for (IndexType j = i+1; j<single_size; j++){
+                    if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(tx_size))) >=support){
                         itemsets.push_back({i,j});
                     }
                 }
-            if (i%cache_regulator==0){
-                #pragma omp barrier
-            }
+            // if (i%cache_regulator==0){
+            //     #pragma omp barrier
+            // }
         }
     }
 
-    void map1 (IndexType k, bool parallel=1){
+    void map1 (IndexType k){
         // //std::cout << "ENTER MAP\n";
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
@@ -175,15 +175,15 @@ class ParallelApriori {
         // //std::cout << "EXIT MAP\n";
     }
     
-    void map (IndexType k, bool parallel=1){
+    void map (IndexType k){
         // //std::cout << "ENTER MAP\n";
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
 
-        const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
+        // const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
         occurrencies.resize(itemsets.size());
         //for every itemset
-        #pragma omp parallel for 
+        #pragma omp parallel for
         for (IndexType set=0; set<itemsets.size(); set++){
             occurrencies[set]=0;
             //for every transaction
@@ -196,10 +196,10 @@ class ParallelApriori {
                         cont = 0;
                         //for every item in a transaction
                         while (!cont && tx_cursor<transactions[tx].size()){
-                            // if ((*item)<(tx[tx_cursor])){
-                            //     tx_cursor=tx.size();
-                            // }
-                            // else 
+                            if ((*item)<(transactions[tx][tx_cursor])){
+                                break;
+                            }
+                            else 
                             if ((*item)==(transactions[tx][tx_cursor])){
                                 ++found;
                                 cont = 1;
@@ -234,16 +234,17 @@ class ParallelApriori {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
             U_VectorSet temp;
             IndexType size = transactions.size();
+            IndexType itemsets_size = itemsets.size();
             // const IndexType cache_regulator = std::max((500000/byte_size*(k-1)), (unsigned int)1);
             //for every itemset, try to unite it with another in the itemsets vector
 
             // #pragma omp parallel
             #pragma omp parallel for schedule(dynamic)
-            for (IndexType i=0; i<itemsets.size()-1; i++){
+            for (IndexType i=0; i<itemsets_size-1; i++){
                 if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                 {
                     // #pragma omp for schedule(static) nowait
-                        for(IndexType j=i+1; j<itemsets.size(); j++){    
+                        for(IndexType j=i+1; j<itemsets_size; j++){    
                             if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {   
                                 std::vector<IndexType> merged(k);
