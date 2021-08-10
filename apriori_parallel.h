@@ -35,7 +35,7 @@ class ParallelApriori {
             return seed;
         }
     };
-    using U_VectorSet = std::unordered_set<std::vector<IndexType>, VectorHash>;
+    using VectorSet = std::unordered_set<std::vector<IndexType>, VectorHash>;
 
     inline void print_single_items (){
         for (IndexType i=0; i<single_items.size(); i++){
@@ -180,8 +180,8 @@ class ParallelApriori {
     
     void map (IndexType k){
         // //std::cout << "ENTER MAP\n";
-        std::chrono::time_point<std::chrono::system_clock> start, end;
-        start = std::chrono::system_clock::now();
+        // std::chrono::time_point<std::chrono::system_clock> start, end;
+        // start = std::chrono::system_clock::now();
 
         // const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
         occurrencies.resize(itemsets.size());
@@ -219,8 +219,8 @@ class ParallelApriori {
             }
         }
 
-        end = std::chrono::system_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end - start;
+        // end = std::chrono::system_clock::now();
+        // std::chrono::duration<double> elapsed_seconds = end - start;
         //std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
 
         // //std::cout << "EXIT MAP\n";
@@ -230,8 +230,8 @@ class ParallelApriori {
     void merge (unsigned int k, double support){
         // //std::cout << "ENTER MERGE\n";
 
-        std::chrono::time_point<std::chrono::system_clock> start, end;
-        start = std::chrono::system_clock::now();
+        // std::chrono::time_point<std::chrono::system_clock> start, end;
+        // start = std::chrono::system_clock::now();
 
         if (!itemsets.empty()){
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
@@ -285,7 +285,7 @@ class ParallelApriori {
                     // }
                 }
             }
-            itemsets=v_temp;
+            itemsets.swap(v_temp);
             // itemsets.resize(temp.size(), std::vector<IndexType>(k));
             // IndexType i=0;
             // for(auto& element : temp){
@@ -293,11 +293,11 @@ class ParallelApriori {
             //     {itemsets[i] = element;}
             //     ++i;
             // }
-            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
 
-        end = std::chrono::system_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end - start;
+        // end = std::chrono::system_clock::now();
+        // std::chrono::duration<double> elapsed_seconds = end - start;
         //std::cout <<  "Merge time: " << elapsed_seconds.count() << "s\n";
     }
 
@@ -310,7 +310,7 @@ public:
         // print_items();
         while (!itemsets.empty()){     
             //std::cout << "ENTER PASS N° " << k << "\n";   
-            map1(k);
+            map(k);
             ++k;
             merge(k, support);
             //std::cout << "EXIT PASS N° " << k-1 << "\n\n";
