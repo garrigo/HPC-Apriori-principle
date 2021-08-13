@@ -114,10 +114,10 @@ class ParallelApriori {
             //     #pragma omp barrier
             // }
         }
+        std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
     }
 
     void map1 (IndexType k){
-        // //std::cout << "ENTER MAP\n";
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
 
@@ -174,12 +174,9 @@ class ParallelApriori {
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
         //std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
-
-        // //std::cout << "EXIT MAP\n";
     }
     
     void map (IndexType k){
-        // //std::cout << "ENTER MAP\n";
         // std::chrono::time_point<std::chrono::system_clock> start, end;
         // start = std::chrono::system_clock::now();
 
@@ -223,13 +220,10 @@ class ParallelApriori {
         // std::chrono::duration<double> elapsed_seconds = end - start;
         //std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
 
-        // //std::cout << "EXIT MAP\n";
     }
 
 
     void merge (unsigned int k, double support){
-        // //std::cout << "ENTER MERGE\n";
-
         // std::chrono::time_point<std::chrono::system_clock> start, end;
         // start = std::chrono::system_clock::now();
 
@@ -293,7 +287,7 @@ class ParallelApriori {
             //     {itemsets[i] = element;}
             //     ++i;
             // }
-            // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
 
         // end = std::chrono::system_clock::now();
@@ -306,14 +300,10 @@ public:
         unsigned int k=2;
         read_data(input_file);
         singles_merge(support);
-        // print_single_items();
-        // print_items();
-        while (!itemsets.empty()){     
-            //std::cout << "ENTER PASS N° " << k << "\n";   
+        while (!itemsets.empty()){      
             map(k);
             ++k;
             merge(k, support);
-            //std::cout << "EXIT PASS N° " << k-1 << "\n\n";
         }
     }
 };

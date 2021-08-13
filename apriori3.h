@@ -78,7 +78,7 @@ class Apriori {
     void singles_prune(double support){
         auto item = std::begin(single_items);
         while (item != std::end(single_items)) {
-            std::cout << *item << " Cardinality: " << hashmap[*item]/transactions.size() << "\n";
+            // std::cout << *item << " Cardinality: " << hashmap[*item]/transactions.size() << "\n";
             if (static_cast<double>(hashmap[*item])/static_cast<double>(transactions.size()) < support)
                 item = single_items.erase(item);
             else
@@ -149,7 +149,7 @@ class Apriori {
         }
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
-std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
+// std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
         // std::cout << "EXIT MAP\n";
     }
 
@@ -189,7 +189,7 @@ std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
     void prune(double support) {
         //PRUNE
         // std::cout << "ENTER PRUNE\n";
-        std::cout << "ITEMSETS BEFORE PRUNING: " << itemsets.size() << "\n";
+        // std::cout << "ITEMSETS BEFORE PRUNING: " << itemsets.size() << "\n";
     std::chrono::time_point<std::chrono::system_clock> start, end;
     start = std::chrono::system_clock::now();
         auto itemset = std::begin(itemsets);
@@ -208,8 +208,8 @@ std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
         }
         end = std::chrono::system_clock::now();
 std::chrono::duration<double> elapsed_seconds = end - start;
-std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
-        std::cout << "ITEMSETS AFTER PRUNING: " << itemsets.size() << "\n";
+// std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
+        // std::cout << "ITEMSETS AFTER PRUNING: " << itemsets.size() << "\n";
         // std::cout << "EXIT PRUNE\n";
     }
 
@@ -258,9 +258,10 @@ std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
             }
             itemsets.assign( temp.begin(), temp.end() );
         }
+        std::cout << "ITEMSETS SIZE: " << itemsets.size()  << "\n";
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
-std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
+// std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
         
     }
 
@@ -273,11 +274,11 @@ std::cout <<  "Elapsed time: " << elapsed_seconds.count() << "s\n";
         // print_single_items();
         // print_items();
         while (!itemsets.empty()){
-            std::cout << "ENTER PASS N° " << k << "\n\n";   
+            // std::cout << "ENTER PASS N° " << k << "\n\n";   
             map();
             prune(support);
             merge(k);
-            std::cout << "EXIT PASS N° " << k << "\n\n";
+            // std::cout << "EXIT PASS N° " << k << "\n\n";
             k++;
         }
     }
