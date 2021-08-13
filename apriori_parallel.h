@@ -37,29 +37,13 @@ class ParallelApriori {
     };
     using VectorSet = std::unordered_set<std::vector<IndexType>, VectorHash>;
 
-    inline void print_single_items (){
-        for (IndexType i=0; i<single_items.size(); i++){
-            //std::cout <<"Element: " << single_items[i] << " - Cardinality: "<< occurrencies[i] << "\n";
-        }
-        //std::cout << "SINGLE ITEMS Total size: " << single_items.size() << "\n";
-    }
-
-    inline void print_items () {
-        for (auto set : itemsets){
-            for (auto index : set){
-                //std::cout << single_items[index] <<"    ";
-            }
-            //std::cout << "\n";
-        }
-        //std::cout << "ITEMSETS total size: " << itemsets.size() << "\n";
-    }
 
 
     void read_data (const std::string input_file) {
         std::ifstream ifs;
         ifs.open(input_file);
             if(!ifs) {
-                //std::cout << "Input file could not be opened\n";
+                std::cout << "Input file could not be opened\n";
                 exit(0);
             }
             std::string doc_buffer;
@@ -114,12 +98,9 @@ class ParallelApriori {
             //     #pragma omp barrier
             // }
         }
-        std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
     }
 
     void map1 (IndexType k){
-        std::chrono::time_point<std::chrono::system_clock> start, end;
-        start = std::chrono::system_clock::now();
 
         const IndexType cache_regulator = std::max((200000/byte_size*(unsigned int)transactions[0].size()), (unsigned int)1);
         occurrencies.resize(itemsets.size());
@@ -170,15 +151,9 @@ class ParallelApriori {
                 #pragma omp barrier
             }
         }
-
-        end = std::chrono::system_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end - start;
-        //std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
     }
     
     void map (IndexType k){
-        // std::chrono::time_point<std::chrono::system_clock> start, end;
-        // start = std::chrono::system_clock::now();
 
         // const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
         occurrencies.resize(itemsets.size());
@@ -215,17 +190,10 @@ class ParallelApriori {
                 }
             }
         }
-
-        // end = std::chrono::system_clock::now();
-        // std::chrono::duration<double> elapsed_seconds = end - start;
-        //std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
-
     }
 
 
     void merge (unsigned int k, double support){
-        // std::chrono::time_point<std::chrono::system_clock> start, end;
-        // start = std::chrono::system_clock::now();
 
         if (!itemsets.empty()){
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
@@ -287,12 +255,8 @@ class ParallelApriori {
             //     {itemsets[i] = element;}
             //     ++i;
             // }
-            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
-
-        // end = std::chrono::system_clock::now();
-        // std::chrono::duration<double> elapsed_seconds = end - start;
-        //std::cout <<  "Merge time: " << elapsed_seconds.count() << "s\n";
     }
 
 public:

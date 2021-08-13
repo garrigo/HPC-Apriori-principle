@@ -39,29 +39,12 @@ class Apriori {
     std::vector<std::string> single_items;
     std::vector<IndexType> occurrencies;
 
-    inline void print_single_items (){
-        for (IndexType i=0; i<single_items.size(); i++){
-            //std::cout <<"Element: " << single_items[i] << " - Cardinality: "<< occurrencies[i] << "\n";
-        }
-        //std::cout << "SINGLE ITEMS Total size: " << single_items.size() << "\n";
-    }
-
-    inline void print_items () {
-        for (auto set : itemsets){
-            for (auto index : set){
-                //std::cout << single_items[index] <<"    ";
-            }
-            //std::cout << "\n";
-        }
-        //std::cout << "ITEMSETS total size: " << itemsets.size() << "\n";
-    }
-
 
     void read_data (const std::string input_file) {
         std::ifstream ifs;
         ifs.open(input_file);
             if(!ifs) {
-                //std::cout << "Input file could not be opened\n";
+                std::cout << "Input file could not be opened\n";
                 exit(0);
             }
             std::string doc_buffer;
@@ -116,10 +99,6 @@ class Apriori {
 
 
     void map (IndexType k){
-        // //std::cout << "ENTER MAP\n";
-        std::chrono::time_point<std::chrono::system_clock> start, end;
-        start = std::chrono::system_clock::now();
-
         occurrencies.resize(itemsets.size());
         //for every itemset
         IndexType occ = 0;
@@ -155,16 +134,9 @@ class Apriori {
             }
             ++occ;
         }
-
-        end = std::chrono::system_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end - start;
-        //std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
-
-        // //std::cout << "EXIT MAP\n";
     }
 
     void prune (double support){
-        // //std::cout << "ITEMSETS BEFORE PRUNING: " << itemsets.size() << "\n";
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();        
         IndexType occ = 0;
@@ -178,17 +150,9 @@ class Apriori {
                 ++item_set;
             ++occ;
         }
-        end = std::chrono::system_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end - start;
-        // //std::cout <<  "Prune time: " << elapsed_seconds.count() << "s\n";
-        // //std::cout << "ITEMSETS AFTER PRUNING: " << itemsets.size() << "\n";
     }
 
     void merge (int k, double support){
-        // //std::cout << "ENTER MERGE\n";
-
-        std::chrono::time_point<std::chrono::system_clock> start, end;
-        start = std::chrono::system_clock::now();
 
         if (!itemsets.empty()){
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
@@ -229,12 +193,8 @@ class Apriori {
                 ++itemset_x;
             }
             itemsets.swap(temp);
-            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
-
-        end = std::chrono::system_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end - start;
-        //std::cout <<  "Merge time: " << elapsed_seconds.count() << "s\n";
     }
 
 public:
@@ -242,18 +202,11 @@ public:
         int k=2;
         read_data(input_file);
         singles_merge(support);
-        // print_single_items();
-        // print_items();
         while (!itemsets.empty()){     
-            //std::cout << "ENTER PASS N° " << k << "\n";   
             map(k);
             prune(support);
             ++k;
             merge(k, support);
-            //std::cout << "EXIT PASS N° " << k-1 << "\n\n";
-            // print_items();
-            
-            
         }
     }
 };

@@ -20,26 +20,10 @@ using IndexType = unsigned int;
 class SSE_Apriori
 {
 
-    struct VectorHash
-    {
-        inline IndexType operator()(const std::pair<IndexType *, IndexType> &pair) const
-        {
-            std::hash<IndexType> hasher;
-            IndexType seed = 0;
-            for (IndexType i = 0; i < pair.second; i++)
-            {
-                seed ^= hasher(pair.first[i]) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-            }
-            return seed;
-        }
-    };
-    using VectorSet = std::unordered_set<std::pair<IndexType *, IndexType>, VectorHash>;
-
     std::vector<IndexType *> transactions;
     std::vector<IndexType *> itemsets;
     std::vector<std::string> single_items;
     std::vector<IndexType> occurrencies;
-
     IndexType mask_size = 128;
 
     inline void initialize_array(IndexType *buf)
@@ -50,14 +34,6 @@ class SSE_Apriori
         }
     }
 
-    inline void print_single_items()
-    {
-        for (IndexType i = 0; i < single_items.size(); i++)
-        {
-            //std::cout <<"Element: " << single_items[i] << " - Cardinality: "<< occurrencies[i] << "\n";
-        }
-        //std::cout << "SINGLE ITEMS Total size: " << single_items.size() << "\n";
-    }
 
     inline void print_items()
     {
@@ -70,7 +46,6 @@ class SSE_Apriori
             }
             std::cout << "\n";
         }
-        //std::cout << "ITEMSETS total size: " << itemsets.size() << "\n";
     }
 
     inline void print_transactions()
@@ -84,7 +59,6 @@ class SSE_Apriori
             }
             std::cout << "\n";
         }
-        //std::cout << "ITEMSETS total size: " << itemsets.size() << "\n";
     }
 
     void read_data(const std::string input_file, bool parallel=1)
@@ -93,7 +67,7 @@ class SSE_Apriori
         ifs.open(input_file);
         if (!ifs)
         {
-            //std::cout << "Input file could not be opened\n";
+            std::cout << "Input file could not be opened\n";
             exit(0);
         }
         std::string doc_buffer;
@@ -182,16 +156,11 @@ class SSE_Apriori
                     }
                 }
         }
-        std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
     }
 
     void map(IndexType k, bool parallel=1)
     {
-        // //std::cout << "ENTER MAP\n";
-        std::chrono::time_point<std::chrono::system_clock> start, end;
-        start = std::chrono::system_clock::now();
 
-        // const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
         occurrencies.resize(itemsets.size());
         //for every itemset
         #pragma omp parallel for if(parallel)
@@ -210,19 +179,11 @@ class SSE_Apriori
                     if (found == i)
                         break;
                 }
-
                 if (found == mask_size / 128)
-
                     occurrencies[set]++;
             }
         }
 
-
-        end = std::chrono::system_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end - start;
-        // std::cout <<  "Map time: " << elapsed_seconds.count() << "s\n";
-
-        // //std::cout << "EXIT MAP\n";
     }
 
 
@@ -253,10 +214,6 @@ class SSE_Apriori
 
     void merge(unsigned int k, double support, bool parallel=1)
     {
-        // //std::cout << "ENTER MERGE\n";
-
-        std::chrono::time_point<std::chrono::system_clock> start, end;
-        start = std::chrono::system_clock::now();
 
         if (!itemsets.empty())
         {
@@ -309,10 +266,7 @@ class SSE_Apriori
                 _mm_free(v_temp[i]);
         }
 
-        end = std::chrono::system_clock::now();
-        std::chrono::duration<double> elapsed_seconds = end - start;
-        // std::cout <<  "Merge time: " << elapsed_seconds.count() << "s\n";
-        std::cout << "ITEMSETS SIZE: " << itemsets.size() <<  "\n";
+        // std::cout << "ITEMSETS SIZE: " << itemsets.size() <<  "\n";
     }
 
 public:
@@ -321,8 +275,6 @@ public:
         IndexType k = 2;
         read_data(input_file, parallel);
         singles_merge(support, parallel);
-        // print_transactions();
-        // print_items();
         while (!itemsets.empty())
         {
             map(k, parallel);
