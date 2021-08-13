@@ -1,12 +1,12 @@
 #include<iostream>
 #include<chrono>
-// #include "apriori3.h"
+
 #include "apriori.h"
 #include "apriori_parallel.h"
 #include "apriori_sse.h"
+
 constexpr double support = 0.80;
 const char file[]="chess.dat";
-
 
 int main (){
     SSE_Apriori sse_sequential, sse_parallel;
