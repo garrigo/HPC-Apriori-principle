@@ -5,8 +5,8 @@
 #include "apriori_parallel.h"
 #include "apriori_sse.h"
 
-constexpr double support = 0.85;
-const char file[]="pumbs.dat";
+constexpr double support = 0.80;
+const char file[]="chess.dat";
 
 int main (){
     SSE_Apriori sse_sequential, sse_parallel;
@@ -22,7 +22,7 @@ int main (){
     std::chrono::duration<double> sse_par_time = end - start;
     start = std::chrono::system_clock::now();
 
-    // nosse_parallel.run(file, support);
+    nosse_parallel.run(file, support);
     
 
     end = std::chrono::system_clock::now();
@@ -36,7 +36,7 @@ int main (){
     std::chrono::duration<double> sse_seq_time= end - start;
 
     start = std::chrono::system_clock::now();
-    // nosse_sequential.run(file, support);
+    nosse_sequential.run(file, support);
     
 
     end = std::chrono::system_clock::now();

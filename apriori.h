@@ -8,30 +8,29 @@
 #include <unordered_set>
 #include <omp.h>
 
-using IndexType = unsigned int;
 
 class Apriori
 {
 
     struct VectorHash
     {
-        inline IndexType operator()(const std::vector<IndexType> &v) const
+        inline unsigned int operator()(const std::vector<unsigned int> &v) const
         {
-            std::hash<IndexType> hasher;
-            IndexType seed = 0;
-            for (IndexType i : v)
+            std::hash<unsigned int> hasher;
+            unsigned int seed = 0;
+            for (unsigned int i : v)
             {
                 seed ^= hasher(i) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
             }
             return seed;
         }
     };
-    using U_VectorSet = std::unordered_set<std::vector<IndexType>, VectorHash>;
+    using U_VectorSet = std::unordered_set<std::vector<unsigned int>, VectorHash>;
 
-    std::vector<std::vector<IndexType>> transactions;
+    std::vector<std::vector<unsigned int>> transactions;
     U_VectorSet itemsets;
     std::vector<std::string> single_items;
-    std::vector<IndexType> occurrencies;
+    std::vector<unsigned int> occurrencies;
 
     void read_data(const std::string input_file)
     {
@@ -44,10 +43,10 @@ class Apriori
         }
         std::string doc_buffer;
         std::vector<std::vector<std::string>> result;
-        IndexType current_size = 0;
+        unsigned int current_size = 0;
         while (!getline(ifs, doc_buffer).eof())
         {
-            std::vector<IndexType> line_buffer;
+            std::vector<unsigned int> line_buffer;
             std::istringstream iss(doc_buffer);
             std::string token;
 
@@ -56,7 +55,7 @@ class Apriori
                 if (!isspace(token[0]))
                 {
                     bool clear = 1;
-                    for (IndexType i = 0; i < single_items.size(); i++)
+                    for (unsigned int i = 0; i < single_items.size(); i++)
                     {
                         if (single_items[i] == token)
                         {
@@ -89,10 +88,10 @@ class Apriori
     void singles_merge(double support)
     {
 
-        for (IndexType i = 0; i < single_items.size() - 1; i++)
+        for (unsigned int i = 0; i < single_items.size() - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(transactions.size()))) >= support)
-                for (IndexType j = i + 1; j < single_items.size(); j++)
+                for (unsigned int j = i + 1; j < single_items.size(); j++)
                 {
                     if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(transactions.size()))) >= support)
                     {
@@ -102,11 +101,11 @@ class Apriori
         }
     }
 
-    void map(IndexType k)
+    void map(unsigned int k)
     {
         occurrencies.resize(itemsets.size());
         //for every itemset
-        IndexType occ = 0;
+        unsigned int occ = 0;
         for (const auto set : itemsets)
         {
             occurrencies[occ] = 0;
@@ -115,7 +114,7 @@ class Apriori
             {
                 if (tx.size() >= k)
                 {
-                    IndexType found = 0, cont = 1, tx_cursor = 0;
+                    unsigned int found = 0, cont = 1, tx_cursor = 0;
                     auto item = set.begin();
                     //for every item in itemset
                     while (cont && item != set.end())
@@ -152,8 +151,8 @@ class Apriori
     {
         std::chrono::time_point<std::chrono::system_clock> start, end;
         start = std::chrono::system_clock::now();
-        IndexType occ = 0;
-        IndexType size = transactions.size();
+        unsigned int occ = 0;
+        unsigned int size = transactions.size();
         auto item_set = std::begin(itemsets);
         while (item_set != std::end(itemsets))
         {
@@ -176,15 +175,15 @@ class Apriori
             U_VectorSet temp;
             //for every itemset, try to unite it with another in the itemsets vector
             auto itemset_x = itemsets.begin();
-            IndexType size = transactions.size();
+            unsigned int size = transactions.size();
             while (itemset_x != itemsets.end())
             {
                 auto itemset_y = itemset_x;
                 itemset_y++;
                 while (itemset_y != itemsets.end())
                 {
-                    std::vector<IndexType> merged(k);
-                    IndexType m = 0, v1 = 0, v2 = 0, distance = 0;
+                    std::vector<unsigned int> merged(k);
+                    unsigned int m = 0, v1 = 0, v2 = 0, distance = 0;
                     while (distance < 3 && m < k)
                     {
                         if (v2 == k - 1 || (v1 != k - 1 && (*itemset_x)[v1] < (*itemset_y)[v2]))

@@ -9,30 +9,29 @@
 #include <chrono>
 #include <omp.h>
 
-using IndexType = unsigned int;
-constexpr unsigned int byte_size = sizeof(IndexType);
+constexpr unsigned int byte_size = sizeof(unsigned int);
 
 class ParallelApriori
 {
-    std::vector<std::vector<IndexType>> transactions;
-    std::vector<std::vector<IndexType>> itemsets;
+    std::vector<std::vector<unsigned int>> transactions;
+    std::vector<std::vector<unsigned int>> itemsets;
     std::vector<std::string> single_items;
-    std::vector<IndexType> occurrencies;
+    std::vector<unsigned int> occurrencies;
 
     struct VectorHash
     {
-        inline IndexType operator()(const std::vector<IndexType> &v) const
+        inline unsigned int operator()(const std::vector<unsigned int> &v) const
         {
-            std::hash<IndexType> hasher;
-            IndexType seed = 0;
-            for (IndexType i : v)
+            std::hash<unsigned int> hasher;
+            unsigned int seed = 0;
+            for (unsigned int i : v)
             {
                 seed ^= hasher(i) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
             }
             return seed;
         }
     };
-    using VectorSet = std::unordered_set<std::vector<IndexType>, VectorHash>;
+    using VectorSet = std::unordered_set<std::vector<unsigned int>, VectorHash>;
 
     void read_data(const std::string input_file)
     {
@@ -45,10 +44,10 @@ class ParallelApriori
         }
         std::string doc_buffer;
         std::vector<std::vector<std::string>> result;
-        IndexType current_size = 0;
+        unsigned int current_size = 0;
         while (!getline(ifs, doc_buffer).eof())
         {
-            std::vector<IndexType> line_buffer;
+            std::vector<unsigned int> line_buffer;
             std::istringstream iss(doc_buffer);
             std::string token;
 
@@ -57,7 +56,7 @@ class ParallelApriori
                 if (!isspace(token[0]))
                 {
                     bool clear = 1;
-                    for (IndexType i = 0; i < single_items.size(); i++)
+                    for (unsigned int i = 0; i < single_items.size(); i++)
                     {
                         if (single_items[i] == token)
                         {
@@ -85,14 +84,14 @@ class ParallelApriori
 
     void singles_merge(double support)
     {
-        const IndexType tx_size = transactions.size(), single_size = single_items.size();
-        // const IndexType cache_regulator = std::max((500000/byte_size), 1U);
+        const unsigned int tx_size = transactions.size(), single_size = single_items.size();
+        // const unsigned int cache_regulator = std::max((500000/byte_size), 1U);
         #pragma parallel for schedule(dynamic, 1)
-        for (IndexType i = 0; i < single_size - 1; i++)
+        for (unsigned int i = 0; i < single_size - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(tx_size))) >= support)
                 // #pragma omp for schedule(static) nowait
-                for (IndexType j = i + 1; j < single_size; j++)
+                for (unsigned int j = i + 1; j < single_size; j++)
                 {
                     if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(tx_size))) >= support)
                     {
@@ -105,31 +104,31 @@ class ParallelApriori
         }
     }
 
-    void map1(IndexType k)
+    void map1(unsigned int k)
     {
 
-        const IndexType cache_regulator = std::max((200000 / byte_size * (unsigned int)transactions[0].size()), (unsigned int)1);
+        const unsigned int cache_regulator = std::max((200000 / byte_size * (unsigned int)transactions[0].size()), (unsigned int)1);
         occurrencies.resize(itemsets.size());
-        // occurrencies = std::vector<IndexType>(itemsets.size(), 0);
+        // occurrencies = std::vector<unsigned int>(itemsets.size(), 0);
         #pragma omp parallel for
-        for (IndexType i = 0; i < occurrencies.size(); i++)
+        for (unsigned int i = 0; i < occurrencies.size(); i++)
             occurrencies[i] = 0;
         //for every itemset
         #pragma omp parallel
 
-        for (IndexType tx = 0; tx < transactions.size(); tx++)
+        for (unsigned int tx = 0; tx < transactions.size(); tx++)
         {
-            // for (IndexType set=0; set<itemsets.size(); set++){
+            // for (unsigned int set=0; set<itemsets.size(); set++){
             // for (const auto set : itemsets){
             // #pragma omp single
             // {occurrencies[set]=0;}
             //for every transaction
             #pragma omp for schedule(static) nowait
-            for (IndexType set = 0; set < itemsets.size(); set++)
+            for (unsigned int set = 0; set < itemsets.size(); set++)
             {
-                // for (IndexType tx=0; tx<transactions.size(); tx++){
+                // for (unsigned int tx=0; tx<transactions.size(); tx++){
                 // if (transactions[tx].size()>=k){
-                IndexType found = 0, cont = 1, tx_cursor = 0;
+                unsigned int found = 0, cont = 1, tx_cursor = 0;
                 auto item = itemsets[set].begin();
                 //for every item in itemset
                 while (cont && item != itemsets[set].end())
@@ -166,22 +165,22 @@ class ParallelApriori
         }
     }
 
-    void map(IndexType k)
+    void map(unsigned int k)
     {
 
-        // const IndexType cache_regulator = std::max((500000/byte_size), (unsigned int)1);
+        // const unsigned int cache_regulator = std::max((500000/byte_size), (unsigned int)1);
         occurrencies.resize(itemsets.size());
         //for every itemset
         #pragma omp parallel for
-        for (IndexType set = 0; set < itemsets.size(); set++)
+        for (unsigned int set = 0; set < itemsets.size(); set++)
         {
             occurrencies[set] = 0;
             //for every transaction
-            for (IndexType tx = 0; tx < transactions.size(); tx++)
+            for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
                 if (transactions[tx].size() >= k)
                 {
-                    IndexType found = 0, cont = 1, tx_cursor = 0;
+                    unsigned int found = 0, cont = 1, tx_cursor = 0;
                     auto item = itemsets[set].begin();
                     //for every item in itemset
                     while (cont && item != itemsets[set].end())
@@ -219,26 +218,26 @@ class ParallelApriori
         if (!itemsets.empty())
         {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
-            std::set<std::vector<IndexType>> temp;
-            std::vector<std::vector<IndexType>> v_temp;
-            IndexType size = transactions.size();
-            IndexType itemsets_size = itemsets.size();
-            // const IndexType cache_regulator = std::max((500000/byte_size*(k-1)), (unsigned int)1);
+            std::set<std::vector<unsigned int>> temp;
+            std::vector<std::vector<unsigned int>> v_temp;
+            unsigned int size = transactions.size();
+            unsigned int itemsets_size = itemsets.size();
+            // const unsigned int cache_regulator = std::max((500000/byte_size*(k-1)), (unsigned int)1);
             //for every itemset, try to unite it with another in the itemsets vector
 
             // #pragma omp parallel
             #pragma omp parallel for schedule(dynamic)
-            for (IndexType i = 0; i < itemsets_size - 1; i++)
+            for (unsigned int i = 0; i < itemsets_size - 1; i++)
             {
                 if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                 {
                     // #pragma omp for schedule(static) nowait
-                    for (IndexType j = i + 1; j < itemsets_size; j++)
+                    for (unsigned int j = i + 1; j < itemsets_size; j++)
                     {
                         if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                         {
-                            std::vector<IndexType> merged(k);
-                            IndexType m = 0, v1 = 0, v2 = 0, distance = 0;
+                            std::vector<unsigned int> merged(k);
+                            unsigned int m = 0, v1 = 0, v2 = 0, distance = 0;
                             while (distance < 3 && m < k)
                             {
                                 if (v2 == k - 1 || (v1 != k - 1 && itemsets[i][v1] < itemsets[j][v2]))
@@ -277,8 +276,8 @@ class ParallelApriori
                 }
             }
             itemsets.swap(v_temp);
-            // itemsets.resize(temp.size(), std::vector<IndexType>(k));
-            // IndexType i=0;
+            // itemsets.resize(temp.size(), std::vector<unsigned int>(k));
+            // unsigned int i=0;
             // for(auto& element : temp){
             //     // #pragma omp task firstprivate(i)
             //     {itemsets[i] = element;}
