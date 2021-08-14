@@ -12,6 +12,7 @@
 #include <emmintrin.h>
 #include <smmintrin.h>
 #include <bitset>
+#include <stdlib.h>
 
 using IndexType = unsigned int;
 constexpr unsigned int UINT_BIT_SIZE = sizeof(IndexType)*8;
@@ -20,19 +21,11 @@ class SSE_Apriori
 {
 
     std::vector<IndexType *> transactions;
+    std::vector<unsigned int> masks;
     std::vector<IndexType *> itemsets;
     std::vector<std::string> single_items;
     std::vector<IndexType> occurrencies;
     unsigned int MASK_SIZE = 128;
-
-    inline void initialize_array(IndexType *buf)
-    {
-        for (IndexType m = 0; m < MASK_SIZE / 128; m++)
-        {
-            _mm_store_si128((__m128i *)(buf + (m * 4)), _mm_setzero_si128());
-        }
-    }
-
 
     inline void print_items()
     {
@@ -43,25 +36,60 @@ class SSE_Apriori
                 std::bitset<32> x(itemsets[is][i]);
                 std::cout << x << " ";
             }
-            std::cout << "\n";
+            std::cout << "\n\n";
         }
     }
 
-    inline void print_transactions()
+    inline void print_transactions(IndexType max)
     {
-        for (IndexType is = 0; is < transactions.size(); is++)
+        for (IndexType is = 0; is < std::min((IndexType)transactions.size(), max); is++)
         {
             for (IndexType i = 0; i < MASK_SIZE / 32; i++)
             {
                 std::bitset<32> x(transactions[is][i]);
                 std::cout << x << " ";
             }
-            std::cout << "\n";
+            std::cout << "\n\n";
         }
     }
 
+
+    inline void initialize_array(IndexType *buf)
+    {
+        for (IndexType m = 0; m < MASK_SIZE / 128; m++)
+        {
+            _mm_store_si128((__m128i *)(buf + (m * 4)), _mm_setzero_si128());
+        }
+    }
+
+    // inline void reallocate(IndexType counter, bool parallel){
+        
+    //     #pragma omp parallel for if (parallel)
+    //     for (IndexType i = 0; i < counter; i++)
+    //     {
+    //         IndexType *buf2 = (IndexType *)_mm_malloc(MASK_SIZE / 8, 16);
+    //         __m128i *p_buf2 = (__m128i*)buf2, *p_tx = (__m128i*)(transactions[i]);
+            
+    //         for (IndexType mask = 0; mask < (MASK_SIZE / 128) - 1; mask++)
+    //         {
+    //             _mm_store_si128(p_buf2, _mm_load_si128(p_tx));
+    //             ++p_buf2;
+    //             ++p_tx;
+    //         }      
+    //         _mm_store_si128(p_buf2, _mm_setzero_si128());
+    //         _mm_free(transactions[i]);
+    //         transactions[i] = buf2;
+    //     }
+        
+    // }
+
+
+
     void read_data(const std::string input_file, bool parallel=1)
     {
+    // std::chrono::time_point<std::chrono::system_clock> start, end;
+    // start = std::chrono::system_clock::now();        
+
         std::ifstream ifs;
         ifs.open(input_file);
         if (!ifs)
@@ -72,68 +100,61 @@ class SSE_Apriori
         std::string doc_buffer;
         while (!getline(ifs, doc_buffer).eof())
         {
-            IndexType *buf = (IndexType *)_mm_malloc(MASK_SIZE / 8, 16);
-            initialize_array(buf);
-            for (IndexType m = 0; m < MASK_SIZE / 128; m++)
-                transactions.push_back(buf);
             std::istringstream iss(doc_buffer);
             std::string token;
+            IndexType *buf = (IndexType *)_mm_malloc(MASK_SIZE / 8, 16);
+            initialize_array(buf);
             while (std::getline(iss, token, ' '))
             {
+
                 if (!isspace(token[0]))
                 {
-                    bool clear = 1;
+                    bool clear = true;
                     for (IndexType i = 0; i < single_items.size(); i++)
                     {
                         if (single_items[i] == token)
                         {
                             clear = 0;
-                            buf[i / 32] ^= static_cast<IndexType>(std::pow(2, (32 - (i % 32) - 1)));
-                            if (occurrencies.size() < i)
-                                occurrencies.resize(i + 1);
                             occurrencies[i]++;
+                            buf[i / 32] ^= static_cast<IndexType>(std::pow(2, (32 - (i % 32) - 1)));
                             // i=single_items.size();
                             break;
                         }
                     }
+                    //new element found
                     if (clear)
                     {
-                        single_items.push_back(std::move(token));
+                        single_items.push_back(token);
                         occurrencies.push_back(1);
-                        IndexType s_size = single_items.size();
+                        IndexType s_size= single_items.size();
                         if (single_items.size() > MASK_SIZE)
                         {
                             MASK_SIZE += 128;
                             IndexType *buf2 = (IndexType *)_mm_malloc(MASK_SIZE / 8, 16);
-                            initialize_array(buf2);
+                            
 
-                            for (IndexType i = 0; i < MASK_SIZE / 128; i++)
-                            {
-                                __m128i m = _mm_load_si128((__m128i *)buf + (i * 4));
-                                _mm_store_si128((__m128i *)(buf2 + (i * 4)), m);
-                            }
+                            for (IndexType i = 0; i < MASK_SIZE / 128 - 1; i++)
+                                _mm_store_si128((__m128i *)(buf2 + (i * 4)), _mm_load_si128((__m128i *)(buf + (i * 4))));
+                            _mm_store_si128((__m128i *)(buf2 + MASK_SIZE/32 - 4), _mm_setzero_si128());
                             _mm_free(buf);
                             buf = buf2;
                         }
-                        buf[(s_size - 1) / 32] ^= static_cast<IndexType>(std::pow(2, (32 - ((s_size - 1) % 32) - 1)));
+                        
+                        buf[(s_size-1) / 32] ^= static_cast<IndexType>(std::pow(2, (32 - ((s_size-1) % 32) - 1)));
                     }
                 }
+                
             }
+            transactions.push_back(buf);
+            masks.push_back(MASK_SIZE);
         }
-        if (MASK_SIZE != 128)
-            #pragma omp parallel for if (parallel)
-            for (IndexType i = 0; i < transactions.size(); i++)
-            {
-                IndexType *buf2 = (IndexType *)_mm_malloc(MASK_SIZE / 8, 16);
-                initialize_array(buf2);
-                for (IndexType j = 0; j < MASK_SIZE / 128; j++)
-                {
-                    __m128i m = _mm_load_si128((__m128i *)transactions[i] + (j * 4));
-                    _mm_store_si128((__m128i *)(buf2 + (j * 4)), m);
-                }
-                _mm_free(transactions[i]);
-                transactions[i] = buf2;
-            }
+        ifs.close();
+    // std::cout << MASK_SIZE << "mask SIZE\n\n";
+    // print_transactions(3);
+    // end = std::chrono::system_clock::now();
+    // std::chrono::duration<double> sse_par_time = end - start;
+    // start = std::chrono::system_clock::now();
+    // std::cout << "Read time: " << sse_par_time.count() << "s\n";
     }
 
     void singles_merge(double support, bool parallel=1)
@@ -159,7 +180,7 @@ class SSE_Apriori
 
     void map(IndexType k, bool parallel=1)
     {
-
+        
         occurrencies.resize(itemsets.size());
         //for every itemset
         #pragma omp parallel for if(parallel)
@@ -170,19 +191,23 @@ class SSE_Apriori
             for (IndexType tx = 0; tx < transactions.size(); tx++)
             {
                 IndexType found = 0;
+                __m128i *p_set = (__m128i *)itemsets[set],  *p_tx = (__m128i *)transactions[tx];
                 for (IndexType i = 0; i < MASK_SIZE / 128; i++)
                 {
-                    __m128i set_128 = _mm_load_si128((__m128i *)itemsets[set] + (i * 4));
-                    __m128i xor_result = _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128((__m128i *)transactions[tx] + (i * 4))), set_128);
+                    
+                    
+                    __m128i set_128 = _mm_load_si128(p_set);
+                    __m128i xor_result = ((masks[tx]/128)>i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : _mm_xor_si128(_mm_setzero_si128(), set_128);
                     found += _mm_testz_si128(xor_result, xor_result);
                     if (found == i)
                         break;
+                    ++p_set;
+                    ++p_tx;
                 }
                 if (found == MASK_SIZE / 128)
                     occurrencies[set]++;
             }
         }
-
     }
 
 
@@ -237,20 +262,26 @@ class SSE_Apriori
                         {
                             IndexType *buf = (IndexType *)_mm_malloc(MASK_SIZE / 8, 16);
                             initialize_array(buf);
-                            IndexType bit_count = 0, aggregator = 0;
-
-                            for (IndexType mask = 0; mask < MASK_SIZE / 32; mask += 4)
+                            IndexType bit_count = 0;
+                            bool inserted = false;
+                            __m128i *p_buf = (__m128i *)buf, *p_seti = (__m128i *)itemsets[i], *p_setj = (__m128i *)itemsets[j];
+                            for (IndexType mask = 0; mask < MASK_SIZE / 128; mask++)
                             {
-                                _mm_store_si128((__m128i *)(buf + mask), _mm_or_si128(_mm_load_si128((__m128i *)itemsets[i] + mask), _mm_load_si128((__m128i *)itemsets[j] + mask)));
-                                countSetBits(buf + mask, bit_count);
+                                _mm_store_si128(p_buf, _mm_or_si128(_mm_load_si128(p_seti), _mm_load_si128(p_setj)));
+                                ++p_buf;
+                                ++p_seti;
+                                ++p_setj;
+                                
                             }
+                            countSetBits(buf, bit_count);
+                            
                             if (bit_count == k)
                             {
                                 #pragma omp critical (merge_write)
-                                if (temp.insert(std::vector<IndexType>(buf, buf + MASK_SIZE / 32)).second)
+                                if (inserted=temp.insert(std::vector<IndexType>(buf, buf + MASK_SIZE / 32)).second)
                                     v_temp.push_back(buf);
                             }
-                            else
+                            if (!inserted)
                                 _mm_free(buf);
                         }
                     }
@@ -277,5 +308,8 @@ public:
             ++k;
             merge(k, support, parallel);
         }
+        #pragma omp parallel for if (parallel)
+        for (IndexType i=0; i<transactions.size(); i++)
+            _mm_free(transactions[i]);
     }
 };

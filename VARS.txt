@@ -1,2 +1,0 @@
-export OMP_DISPLAY_ENV="TRUE"
-export OMP_PROC_BIND="TRUE"

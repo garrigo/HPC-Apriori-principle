@@ -294,6 +294,7 @@ public:
         unsigned int k = 2;
         read_data(input_file);
         singles_merge(support);
+        // std::cout << single_items.size() << "\n";
         while (!itemsets.empty())
         {
             map(k);
