@@ -16,7 +16,7 @@ int main (){
 
     //SSE SEQUENTIAL 
     start = std::chrono::system_clock::now();
-    // sse_sequential.run(file, support, false);
+    sse_sequential.run(file, support, false);
     end = std::chrono::system_clock::now();
     std::chrono::duration<double> sse_seq_time= end - start;
 
@@ -28,13 +28,13 @@ int main (){
 
     //NO-SSE SEQUENTIAL
     start = std::chrono::system_clock::now();
-    // nosse_sequential.run(file, support);
+    nosse_sequential.run(file, support);
     end = std::chrono::system_clock::now();
     std::chrono::duration<double> nosse_seq_time= end - start;
 
     //NO-SSE PARALLEL
     start = std::chrono::system_clock::now();
-    // nosse_parallel.run(file, support);
+    nosse_parallel.run(file, support);
     end = std::chrono::system_clock::now();
     std::chrono::duration<double> nosse_par_time= end - start;
 

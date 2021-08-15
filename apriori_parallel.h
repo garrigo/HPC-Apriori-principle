@@ -43,8 +43,6 @@ class ParallelApriori
             exit(0);
         }
         std::string doc_buffer;
-        std::vector<std::vector<std::string>> result;
-        unsigned int current_size = 0;
         while (!getline(ifs, doc_buffer).eof())
         {
             std::vector<unsigned int> line_buffer;
@@ -62,24 +60,22 @@ class ParallelApriori
                         {
                             clear = 0;
                             line_buffer.push_back(i);
-                            if (occurrencies.size() < i)
-                                occurrencies.resize(i + 1);
                             occurrencies[i]++;
-                            i = single_items.size();
                             break;
                         }
                     }
                     if (clear)
                     {
-                        single_items.push_back(std::move(token));
+                        single_items.push_back(token);
                         occurrencies.push_back(1);
-                        line_buffer.push_back(single_items.size());
+                        line_buffer.push_back(single_items.size()-1);
                     }
                 }
             }
             std::sort(line_buffer.begin(), line_buffer.end());
             transactions.push_back(std::move(line_buffer));
         }
+        ifs.close();
     }
 
     void singles_merge(double support)
@@ -167,8 +163,6 @@ class ParallelApriori
 
     void map(unsigned int k)
     {
-
-        // const unsigned int cache_regulator = std::max((500000/byte_size), (unsigned int)1);
         occurrencies.resize(itemsets.size());
         //for every itemset
         #pragma omp parallel for
@@ -218,7 +212,7 @@ class ParallelApriori
         if (!itemsets.empty())
         {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
-            std::set<std::vector<unsigned int>> temp;
+            VectorSet temp;
             std::vector<std::vector<unsigned int>> v_temp;
             unsigned int size = transactions.size();
             unsigned int itemsets_size = itemsets.size();
@@ -276,14 +270,7 @@ class ParallelApriori
                 }
             }
             itemsets.swap(v_temp);
-            // itemsets.resize(temp.size(), std::vector<unsigned int>(k));
-            // unsigned int i=0;
-            // for(auto& element : temp){
-            //     // #pragma omp task firstprivate(i)
-            //     {itemsets[i] = element;}
-            //     ++i;
-            // }
-            // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
     }
 
@@ -293,7 +280,6 @@ public:
         unsigned int k = 2;
         read_data(input_file);
         singles_merge(support);
-        // std::cout << single_items.size() << "\n";
         while (!itemsets.empty())
         {
             map(k);

@@ -6,7 +6,6 @@
 #include <iostream>
 #include <sstream>
 #include <set>
-#include <unordered_set>
 #include <omp.h>
 #include <immintrin.h>
 #include <emmintrin.h>
@@ -209,7 +208,6 @@ class SSE_Apriori
         if (!itemsets.empty())
         {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
-            // std::set<std::vector<unsigned int>> temp;
             std::set<unsigned int*, Compare> temp;
             std::vector<unsigned int *> v_temp;
             unsigned int size = transactions.size();
@@ -219,10 +217,8 @@ class SSE_Apriori
             #pragma omp parallel for if(parallel) schedule(dynamic)
             for (unsigned int i = 0; i < itemsets_size - 1; i++)
             {
-                // std::cout << static_cast<double>(occurrencies[i]) << " ";
                 if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                 {
-                    // std::cout << i << " ";
                     for (unsigned int j = i + 1; j < itemsets_size; j++)
                     {
 
@@ -258,12 +254,10 @@ class SSE_Apriori
                                 ++p_setj;
                                 
                             }
-                            // countSetBits(buf, bit_count);
                             
                             if (pow_count == 1)
                             {
                                 #pragma omp critical (merge_write)
-                                // if (inserted=temp.insert(std::vector<unsigned int>(buf, buf + MASK_SIZE / 32)).second)
                                 if (inserted=temp.insert(buf).second)
                                     v_temp.push_back(buf);
                             }
@@ -279,7 +273,7 @@ class SSE_Apriori
                 _mm_free(v_temp[i]);
         }
 
-        // std::cout << "ITEMSETS SIZE: " << itemsets.size() <<  "\n";
+        std::cout << "ITEMSETS SIZE: " << itemsets.size() <<  "\n";
     }
 
 public:

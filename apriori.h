@@ -8,7 +8,6 @@
 #include <unordered_set>
 #include <omp.h>
 
-
 class Apriori
 {
 
@@ -25,10 +24,10 @@ class Apriori
             return seed;
         }
     };
-    using U_VectorSet = std::unordered_set<std::vector<unsigned int>, VectorHash>;
+    using VectorSet = std::unordered_set<std::vector<unsigned int>, VectorHash>;
 
     std::vector<std::vector<unsigned int>> transactions;
-    U_VectorSet itemsets;
+    VectorSet itemsets;
     std::vector<std::string> single_items;
     std::vector<unsigned int> occurrencies;
 
@@ -42,8 +41,6 @@ class Apriori
             exit(0);
         }
         std::string doc_buffer;
-        std::vector<std::vector<std::string>> result;
-        unsigned int current_size = 0;
         while (!getline(ifs, doc_buffer).eof())
         {
             std::vector<unsigned int> line_buffer;
@@ -61,28 +58,22 @@ class Apriori
                         {
                             clear = 0;
                             line_buffer.push_back(i);
-                            if (occurrencies.size() < i)
-                                occurrencies.resize(i + 1);
                             occurrencies[i]++;
-                            i = single_items.size();
                             break;
                         }
                     }
                     if (clear)
                     {
-                        single_items.push_back(std::move(token));
+                        single_items.push_back(token);
                         occurrencies.push_back(1);
-                        line_buffer.push_back(single_items.size());
+                        line_buffer.push_back(single_items.size() - 1);
                     }
                 }
             }
             std::sort(line_buffer.begin(), line_buffer.end());
             transactions.push_back(std::move(line_buffer));
         }
-    }
-
-    void singles_prune(double support)
-    {
+        ifs.close();
     }
 
     void singles_merge(double support)
@@ -123,11 +114,11 @@ class Apriori
                         //for every item in transaction
                         while (!cont && tx_cursor < tx.size())
                         {
-                            // if ((*item)<(tx[tx_cursor])){
-                            //     tx_cursor=tx.size();
-                            // }
-                            // else
-                            if ((*item) == (tx[tx_cursor]))
+                            if ((*item) < (tx[tx_cursor]))
+                            {
+                                tx_cursor = tx.size();
+                            }
+                            else if ((*item) == (tx[tx_cursor]))
                             {
                                 ++found;
                                 cont = 1;
@@ -149,8 +140,6 @@ class Apriori
 
     void prune(double support)
     {
-        std::chrono::time_point<std::chrono::system_clock> start, end;
-        start = std::chrono::system_clock::now();
         unsigned int occ = 0;
         unsigned int size = transactions.size();
         auto item_set = std::begin(itemsets);
@@ -171,8 +160,8 @@ class Apriori
 
         if (!itemsets.empty())
         {
-            // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
-            U_VectorSet temp;
+
+            VectorSet temp;
             //for every itemset, try to unite it with another in the itemsets vector
             auto itemset_x = itemsets.begin();
             unsigned int size = transactions.size();
