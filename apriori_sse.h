@@ -13,18 +13,19 @@
 #include <smmintrin.h>
 #include <bitset>
 
-
+static unsigned int MASK_SIZE;
 constexpr unsigned int UINT_BIT_SIZE = sizeof(unsigned int)*8;
+
 
 class SSE_Apriori
 {
-
+    
     std::vector<unsigned int *> transactions;
     std::vector<unsigned int> masks;
     std::vector<unsigned int *> itemsets;
     std::vector<std::string> single_items;
     std::vector<unsigned int> occurrencies;
-    unsigned int MASK_SIZE = 128;
+    
 
     inline void print_items()
     {
@@ -178,13 +179,38 @@ class SSE_Apriori
         }
     }
 
+    struct Compare {
+        bool operator() (unsigned int* a, unsigned int* b) const {
+            unsigned int compare_result[8];
+            __m128i *p_a = (__m128i *)a, *p_b = (__m128i *)b;
+            for (unsigned int mask = 0; mask < MASK_SIZE / 128; mask++)
+            {
+                __m128i m_a = _mm_load_si128(p_a);
+                __m128i m_b = _mm_load_si128(p_b);
+                _mm_store_si128((__m128i*)compare_result, _mm_cmpgt_epi32(m_b, m_a));
+                _mm_store_si128((__m128i*)(compare_result+4), _mm_cmpgt_epi32(m_a, m_b));
+                for (unsigned int b=0; b<4; b++)
+                {
+                    if (compare_result[b])
+                        return true;
+                    if (compare_result[b+4])
+                        return false;
+                }
+                ++p_a;
+                ++p_b;                
+            }
+            return false;
+        }
+    };
+
     void merge(unsigned int k, double support, bool parallel=1)
     {
 
         if (!itemsets.empty())
         {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
-            std::set<std::vector<unsigned int>> temp;
+            // std::set<std::vector<unsigned int>> temp;
+            std::set<unsigned int*, Compare> temp;
             std::vector<unsigned int *> v_temp;
             unsigned int size = transactions.size();
             unsigned int itemsets_size = itemsets.size();
@@ -237,7 +263,8 @@ class SSE_Apriori
                             if (pow_count == 1)
                             {
                                 #pragma omp critical (merge_write)
-                                if (inserted=temp.insert(std::vector<unsigned int>(buf, buf + MASK_SIZE / 32)).second)
+                                // if (inserted=temp.insert(std::vector<unsigned int>(buf, buf + MASK_SIZE / 32)).second)
+                                if (inserted=temp.insert(buf).second)
                                     v_temp.push_back(buf);
                             }
                             if (!inserted)
@@ -247,7 +274,7 @@ class SSE_Apriori
                 }
             }
             itemsets.swap(v_temp);
-            #pragma omp task
+            #pragma omp parallel for if(parallel)
             for (unsigned int i=0; i<v_temp.size(); i++)
                 _mm_free(v_temp[i]);
         }
@@ -259,6 +286,7 @@ public:
     void run(const std::string input_file, double support, bool parallel=1)
     {
         unsigned int k = 2;
+        MASK_SIZE = 128;
         read_data(input_file, parallel);
         singles_merge(support, parallel);
         while (!itemsets.empty())
@@ -267,7 +295,7 @@ public:
             ++k;
             merge(k, support, parallel);
         }
-        #pragma omp task
+        #pragma omp parallel for if(parallel)
         for (unsigned int i=0; i<transactions.size(); i++)
             _mm_free(transactions[i]);
     }
