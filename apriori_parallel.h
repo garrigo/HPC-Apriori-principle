@@ -270,7 +270,7 @@ class ParallelApriori
                 }
             }
             itemsets.swap(v_temp);
-            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
     }
 
