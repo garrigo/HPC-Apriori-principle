@@ -82,7 +82,7 @@ class ParallelApriori
     {
         const unsigned int tx_size = transactions.size(), single_size = single_items.size();
         // const unsigned int cache_regulator = std::max((500000/byte_size), 1U);
-        #pragma parallel for schedule(dynamic, 1)
+        #pragma parallel for schedule(dynamic)
         for (unsigned int i = 0; i < single_size - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(tx_size))) >= support)
@@ -165,7 +165,7 @@ class ParallelApriori
     {
         occurrencies.resize(itemsets.size());
         //for every itemset
-        #pragma omp parallel for
+        #pragma omp parallel for schedule(static)
         for (unsigned int set = 0; set < itemsets.size(); set++)
         {
             occurrencies[set] = 0;

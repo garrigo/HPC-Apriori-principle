@@ -146,7 +146,7 @@ class SSE_Apriori
 
         occurrencies.resize(itemsets.size());
         //for every itemset
-        #pragma omp parallel for if (parallel)
+        #pragma omp parallel for schedule(static) if (parallel)
         for (unsigned int set = 0; set < itemsets.size(); set++)
         {
             occurrencies[set] = 0;
@@ -174,7 +174,7 @@ class SSE_Apriori
 
     struct Compare
     {
-        bool operator()(unsigned int *__restrict__ a, unsigned int *__restrict__ b) const
+        bool operator()(unsigned int * __restrict__ a, unsigned int * __restrict__ b) const
         {
             unsigned int compare_result[8];
             __m128i *p_a = (__m128i *)a, *p_b = (__m128i *)b;
