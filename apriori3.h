@@ -11,7 +11,7 @@
 #include <chrono>
 #include <bitset>
 
-class Apriori
+class AprioriTest
 {
 public:
     std::vector<std::vector<std::string>> transactions;
