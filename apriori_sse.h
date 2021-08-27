@@ -43,8 +43,7 @@ struct Compare
     }
 };
 
-//Standardizing the size type of both the dynamic and the fixed tensor, both uses the same name
-//Useful for policy management
+
 struct VectorSSE {
     typedef std::vector<unsigned int *> data_type;
 };
@@ -64,30 +63,42 @@ protected:
     typename ItemsetType::data_type  itemsets;
     std::vector<unsigned int> occurrencies;
     
-    inline void print_items()
+    void store_single_items(std::string filename)
     {
-        for (unsigned int is = 0; is < itemsets.size(); is++)
+        std::ofstream ofs;
+        ofs.open(filename, std::ios_base::app);
+        if(ofs.is_open())
         {
-            for (unsigned int i = 0; i < MASK_SIZE / 32; i++)
+            for(auto& s : single_items)
             {
-                std::bitset<32> x(itemsets[is][i]);
-                std::cout << x << " ";
+                ofs << s << " ";
             }
-            std::cout << "\n\n";
+            ofs << "\n\n";
+            ofs.close();
         }
+        else std::cout << "Unable to open sse_output.dat file\n";
+
     }
 
-    inline void print_transactions(unsigned int max)
+    void store_itemsets(std::string filename)
     {
-        for (unsigned int is = 0; is < std::min((unsigned int)transactions.size(), max); is++)
-        {
-            for (unsigned int i = 0; i < MASK_SIZE / 32; i++)
+        std::ofstream ofs;
+        ofs.open(filename, std::ios_base::app);
+        if (ofs.is_open())
+        {        
+            for (auto& set : itemsets)
             {
-                std::bitset<32> x(transactions[is][i]);
-                std::cout << x << " ";
+                for (unsigned int i = 0; i < MASK_SIZE / 32; i++)
+                {
+                    std::bitset<32> x(set[i]);
+                    ofs << x << " ";
+                }
+                ofs << "\n";
             }
-            std::cout << "\n\n";
+            ofs << "\n";
+            ofs.close();
         }
+        else std::cout << "Unable to open sse_output.dat file\n";
     }
 
     inline void initialize_array(unsigned int *buf)
@@ -304,6 +315,7 @@ class VectorAprioriSSE : public SSE<VectorSSE>
                     }
                 }
             }
+            
             itemsets.swap(v_temp);
             #pragma omp parallel for if (parallel)
             for (unsigned int i = 0; i < v_temp.size(); i++)
@@ -341,6 +353,13 @@ class SetAprioriSSE : public SSE<SetSSE>
                     }
                 }
         }
+        // #pragma omp parallel if(parallel)
+        // #pragma single
+        // #pragma omp task
+        // {        
+        //     store_single_items("sse_output.dat");
+        //     store_itemsets("sse_output.dat");
+        // }
     }
 
     void map(unsigned int k, bool parallel = 1)
@@ -378,7 +397,7 @@ class SetAprioriSSE : public SSE<SetSSE>
         #pragma omp taskwait
     }
 
-    void prune(double support)
+    void prune(double support, bool parallel)
     {   
         unsigned int occ = 0;
         unsigned int size = transactions.size();
@@ -393,11 +412,17 @@ class SetAprioriSSE : public SSE<SetSSE>
                 ++item_set;
             ++occ;
         }
+        // #pragma omp parallel if(parallel)
+        // #pragma single
+        // #pragma omp task
+        // {        
+        //     store_itemsets("sse_output.dat");
+        // }
     }
 
     void merge(unsigned int k, double support, bool parallel = 1)
     {
-        prune(support);
+        prune(support, parallel);
         if (!itemsets.empty())
         {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality

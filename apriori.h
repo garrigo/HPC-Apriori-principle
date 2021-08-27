@@ -48,6 +48,28 @@ protected:
     std::vector<unsigned int> occurrencies;
 
 
+    void store_itemsets(const std::string& filename)
+    {
+        std::ofstream ofs;
+        ofs.open(filename, std::ios_base::app);
+        if (ofs.is_open())
+        {        
+            for (auto& set : itemsets)
+            {
+                ofs << "{ ";
+                for(auto& item: set)
+                {
+                    ofs << single_items[item] << " ";
+                }
+                ofs << "}";
+                ofs << "  ";
+            }
+            ofs << "\n\n";
+            ofs.close();
+        }
+        else std::cout << "Unable to open sse_output.dat file\n";
+    }
+
     void read_data(const std::string input_file, bool parallel)
     {
         std::ifstream ifs;
@@ -141,6 +163,10 @@ class SetApriori : public Apriori <Set>
                     }
                 }
         }
+        // #pragma omp parallel if(parallel)
+        // #pragma omp single
+        // #pragma omp task
+        // store_itemsets("nosse_set_output.dat");
     }
 
     void map(unsigned int k, bool parallel)
@@ -195,7 +221,7 @@ class SetApriori : public Apriori <Set>
         #pragma omp taskwait
     }
 
-    void prune(double support)
+    void prune(double support, bool parallel)
     {   
         unsigned int occ = 0;
         unsigned int size = transactions.size();
@@ -210,11 +236,15 @@ class SetApriori : public Apriori <Set>
                 ++item_set;
             ++occ;
         }
+        // #pragma omp parallel if(parallel)
+        // #pragma omp single
+        // #pragma omp task
+        // store_itemsets("nosse_set_output.dat");
     }
 
     void merge(unsigned int k, double support, bool parallel)
     {
-        prune(support);
+        prune(support, parallel);
         if (!itemsets.empty())
         {
             VectorSet temp;
