@@ -10,6 +10,7 @@
 #include <omp.h>
 
 constexpr unsigned int byte_size = sizeof(unsigned int);
+static constexpr size_t CACHE_SIZEE = 4194304;
 
 struct VectorHash
 {
@@ -24,11 +25,9 @@ struct VectorHash
         return seed;
     }
 };
+
 using VectorSet = std::unordered_set<std::vector<unsigned int>, VectorHash>;
 
-
-//Standardizing the size type of both the dynamic and the fixed tensor, both uses the same name
-//Useful for policy management
 struct Vector {
     typedef std::vector<std::vector<unsigned int>> data_type;
 };
@@ -39,13 +38,18 @@ struct Set {
 
 
 template<class ItemsetType>
-class Apriori
+class AprioriBase
 {
 protected:
     std::vector<std::vector<unsigned int>> transactions;
     typename ItemsetType::data_type itemsets;
     std::vector<std::string> single_items;
     std::vector<unsigned int> occurrencies;
+    size_t TX_BYTE_SIZE = 0;
+
+    virtual void singles_merge(double, bool) = 0;
+    virtual void map(unsigned int, bool) = 0;
+    virtual void merge(unsigned int, double, bool) = 0;
 
 
     void store_itemsets(const std::string& filename)
@@ -114,6 +118,7 @@ protected:
             }
             #pragma omp task firstprivate(line_buffer), shared(transactions) if(parallel)
             {
+                TX_BYTE_SIZE += line_buffer.size()*4;
                 std::sort(line_buffer.begin(), line_buffer.end());
                 #pragma omp critical (push)
                 transactions.push_back(line_buffer);
@@ -122,10 +127,6 @@ protected:
         #pragma omp taskwait
         ifs.close();
     }
-
-    virtual void singles_merge(double, bool) = 0;
-    virtual void map(unsigned int, bool) = 0;
-    virtual void merge(unsigned int, double, bool) = 0;
 
 public:
     void run(const std::string input_file, double support, bool parallel)
@@ -140,14 +141,11 @@ public:
             merge(k, support, parallel);
         }
     }
+
 };
 
-class SetApriori : public Apriori <Set>
+class Apriori : public AprioriBase <Set>
 {
-
-
-
-
     void singles_merge(double support, bool parallel)
     {
         #pragma omp parallel for schedule(dynamic) if(parallel)
@@ -300,13 +298,12 @@ class SetApriori : public Apriori <Set>
             // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
     }
-
-
 };
 
 
-class VectorApriori : public Apriori<Vector>
+class SyncApriori : public AprioriBase<Vector>
 {
+
     void singles_merge(double support, bool parallel)
     {
         const unsigned int tx_size = transactions.size(), single_size = single_items.size();
@@ -329,79 +326,20 @@ class VectorApriori : public Apriori<Vector>
         }
     }
 
-    void map1(unsigned int k, bool parallel)
-    {
-
-        const unsigned int cache_regulator = std::max((200000 / byte_size * (unsigned int)transactions[0].size()), (unsigned int)1);
-        occurrencies.resize(itemsets.size());
-        // occurrencies = std::vector<unsigned int>(itemsets.size(), 0);
-        #pragma omp parallel for
-        for (unsigned int i = 0; i < occurrencies.size(); i++)
-            occurrencies[i] = 0;
-        //for every itemset
-        #pragma omp parallel
-
-        for (unsigned int tx = 0; tx < transactions.size(); tx++)
-        {
-            // for (unsigned int set=0; set<itemsets.size(); set++){
-            // for (const auto set : itemsets){
-            // #pragma omp single
-            // {occurrencies[set]=0;}
-            //for every transaction
-            #pragma omp for schedule(static) nowait
-            for (unsigned int set = 0; set < itemsets.size(); set++)
-            {
-                // for (unsigned int tx=0; tx<transactions.size(); tx++){
-                // if (transactions[tx].size()>=k){
-                unsigned int found = 0, cont = 1, tx_cursor = 0;
-                auto item = itemsets[set].begin();
-                //for every item in itemset
-                while (cont && item != itemsets[set].end())
-                {
-                    cont = 0;
-                    //for every item in transaction
-                    while (!cont && tx_cursor < transactions[tx].size())
-                    {
-                        if ((*item) < (transactions[tx][tx_cursor]))
-                        {
-                            break;
-                        }
-                        else if ((*item) == (transactions[tx][tx_cursor]))
-                        {
-                            ++found;
-                            cont = 1;
-                        }
-
-                        ++tx_cursor;
-                    }
-                    ++item;
-                }
-                if (found == itemsets[set].size())
-                {
-                #pragma omp atomic
-                    occurrencies[set]++;
-                }
-                // }
-            }
-            if (tx % cache_regulator == 0)
-            {
-                #pragma omp barrier
-            }
-        }
-    }
-
     void map(unsigned int k, bool parallel)
     {
-        occurrencies.resize(itemsets.size());
-        //for every itemset
-        #pragma omp parallel for schedule(static) if(parallel)
-        for (unsigned int set = 0; set < itemsets.size(); set++)
+        
+        occurrencies = std::vector<unsigned int>(itemsets.size(), 0);
+
+        if(TX_BYTE_SIZE>(4*k*itemsets.size()))
         {
-            occurrencies[set] = 0;
-            //for every transaction
+            unsigned int cache_regulator = CACHE_SIZEE/(TX_BYTE_SIZE/transactions.size());
+            #pragma omp parallel if(parallel)
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
-                if (transactions[tx].size() >= k)
+                //for every transaction
+                #pragma omp for schedule(static) nowait
+                for (unsigned int set = 0; set < itemsets.size(); set++)
                 {
                     unsigned int found = 0, cont = 1, tx_cursor = 0;
                     auto item = itemsets[set].begin();
@@ -409,7 +347,7 @@ class VectorApriori : public Apriori<Vector>
                     while (cont && item != itemsets[set].end())
                     {
                         cont = 0;
-                        //for every item in a transaction
+                        //for every item in transaction
                         while (!cont && tx_cursor < transactions[tx].size())
                         {
                             if ((*item) < (transactions[tx][tx_cursor]))
@@ -428,8 +366,58 @@ class VectorApriori : public Apriori<Vector>
                     }
                     if (found == itemsets[set].size())
                     {
+                        #pragma omp atomic
                         occurrencies[set]++;
                     }
+                }
+                if (tx % cache_regulator == 0)
+                {
+                    #pragma omp barrier
+                }
+            }
+        }
+        else
+        {
+            unsigned int cache_regulator = CACHE_SIZEE/(k*4);
+            #pragma omp parallel if(parallel)
+            for (unsigned int set = 0; set < itemsets.size(); set++)
+            {
+                //for every transaction
+                #pragma omp for schedule(static) nowait
+                for (unsigned int tx = 0; tx < transactions.size(); tx++)
+                {
+                    unsigned int found = 0, cont = 1, tx_cursor = 0;
+                    auto item = itemsets[set].begin();
+                    //for every item in itemset
+                    while (cont && item != itemsets[set].end())
+                    {
+                        cont = 0;
+                        //for every item in transaction
+                        while (!cont && tx_cursor < transactions[tx].size())
+                        {
+                            if ((*item) < (transactions[tx][tx_cursor]))
+                            {
+                                break;
+                            }
+                            else if ((*item) == (transactions[tx][tx_cursor]))
+                            {
+                                ++found;
+                                cont = 1;
+                            }
+
+                            ++tx_cursor;
+                        }
+                        ++item;
+                    }
+                    if (found == itemsets[set].size())
+                    {
+                        #pragma omp atomic
+                        occurrencies[set]++;
+                    }
+                }
+                if (set % cache_regulator == 0)
+                {
+                    #pragma omp barrier
                 }
             }
         }
@@ -445,6 +433,7 @@ class VectorApriori : public Apriori<Vector>
             std::vector<std::vector<unsigned int>> v_temp;
             unsigned int size = transactions.size();
             unsigned int itemsets_size = itemsets.size();
+            size_t cache_regulator = CACHE_SIZEE/(k-1)*4;
             // const unsigned int cache_regulator = std::max((500000/byte_size*(k-1)), (unsigned int)1);
             //for every itemset, try to unite it with another in the itemsets vector
 
@@ -502,5 +491,4 @@ class VectorApriori : public Apriori<Vector>
             // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
     }
-
 };
