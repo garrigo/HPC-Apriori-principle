@@ -3,11 +3,16 @@
 #include "apriori.h"
 #include "apriori_sse.h"
 
-constexpr double support = 0.75;
-const char file[] = "chess.dat";
-
-int main()
+int main(int argc, char* argv[])
 {
+    if(argc!=3)
+    {
+        std::cout <<"ERROR! Missing/exceeding arguments. Usage: ./apriori <file name> <support>";
+        return 1;
+    }
+    std::string file = argv[1];
+    double support = atof(argv[2]);
+
     SetAprioriSSE set_sse;
     VectorAprioriSSE vector_sse;
     SetApriori set;
@@ -15,7 +20,7 @@ int main()
 
     std::chrono::time_point<std::chrono::system_clock> start, end;
 
-    //SSE SEQUENTIAL WITH SET
+    //SSE SET SEQUENTIAL
     start = std::chrono::system_clock::now();
     set_sse.run(file, support, false);
     end = std::chrono::system_clock::now();
@@ -23,13 +28,13 @@ int main()
 
     set_sse = SetAprioriSSE();
 
-    //SSE PARALLEL WITH SET
+    //SSE SET PARALLEL
     start = std::chrono::system_clock::now();
     set_sse.run(file, support, true);
     end = std::chrono::system_clock::now();
     std::chrono::duration<double> set_sse_par = end - start;
 
-    //SSE SEQUENTIAL WITH VECTOR
+    //SSE VECTOR SEQUENTIAL
     start = std::chrono::system_clock::now();
     vector_sse.run(file, support, false);
     end = std::chrono::system_clock::now();
@@ -37,13 +42,13 @@ int main()
 
     vector_sse = VectorAprioriSSE();
 
-    //SSE PARALLEL WITH VECTOR
+    //SSE VECTOR PARALLEL
     start = std::chrono::system_clock::now();
     vector_sse.run(file, support, true);
     end = std::chrono::system_clock::now();
     std::chrono::duration<double> vector_sse_par = end - start;
 
-    //NO-SSE SEQUENTIAL
+    //NO-SSE SET SEQUENTIAL
     start = std::chrono::system_clock::now();
     set.run(file, support, false);
     end = std::chrono::system_clock::now();
@@ -51,7 +56,7 @@ int main()
 
     set = SetApriori();
 
-    //NO-SSE PARALLEL
+    //NO-SSE SET PARALLEL
     start = std::chrono::system_clock::now();
     set.run(file, support, true);
     end = std::chrono::system_clock::now();
@@ -71,7 +76,7 @@ int main()
     end = std::chrono::system_clock::now();
     std::chrono::duration<double> vector_nosse_par = end - start;
 
-    std::cout << "VERSION                        Execution time (s)\n\n";
+    std::cout << "\nVERSION                        Execution time (s)\n\n";
     std::cout << "SSE Set Sequential time:       " << set_sse_seq.count() << "\n";
     std::cout << "SSE Set Parallel time:         " << set_sse_par.count() << "\n";
     std::cout << "SSE Vector Sequential time:    " << vector_sse_seq.count() << "\n";

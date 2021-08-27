@@ -48,7 +48,7 @@ protected:
     std::vector<unsigned int> occurrencies;
 
 
-    void read_data(const std::string input_file)
+    void read_data(const std::string input_file, bool parallel)
     {
         std::ifstream ifs;
         ifs.open(input_file);
@@ -58,6 +58,9 @@ protected:
             exit(0);
         }
         std::string doc_buffer;
+
+        #pragma omp parallel if(parallel)
+        #pragma omp single
         while (!getline(ifs, doc_buffer).eof())
         {
             std::vector<unsigned int> line_buffer;
@@ -87,9 +90,14 @@ protected:
                     }
                 }
             }
-            std::sort(line_buffer.begin(), line_buffer.end());
-            transactions.push_back(std::move(line_buffer));
+            #pragma omp task firstprivate(line_buffer), shared(transactions) if(parallel)
+            {
+                std::sort(line_buffer.begin(), line_buffer.end());
+                #pragma omp critical (push)
+                transactions.push_back(line_buffer);
+            }
         }
+        #pragma omp taskwait
         ifs.close();
     }
 
@@ -101,7 +109,7 @@ public:
     void run(const std::string input_file, double support, bool parallel)
     {
         int k = 2;
-        read_data(input_file);
+        read_data(input_file, parallel);
         singles_merge(support, parallel);
         while (!itemsets.empty())
         {
