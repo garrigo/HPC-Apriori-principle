@@ -497,9 +497,31 @@ class SyncAprioriSSE : public SSE<VectorSSE>
         }
     }
 
+    void prune(double support)
+    {   
+        unsigned int size = transactions.size();
+        unsigned int tail = itemsets.size() - 1;
+        for(int i = tail; i>=0; i--)
+        {
+            if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) < support)
+            {   
+                _mm_free(itemsets[i]);
+                itemsets[i] = itemsets[tail];
+                --tail;
+            }
+        }
+        itemsets.resize(tail+1);
+        // #pragma omp parallel if(parallel)
+        // #pragma single
+        // #pragma omp task
+        // {        
+        //     store_itemsets("sse_output.dat");
+        // }
+    }
+
     void merge(unsigned int k, double support, bool parallel = 1)
     {
-
+        // prune(support);
         if (!itemsets.empty())
         {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
