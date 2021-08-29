@@ -244,20 +244,20 @@ class AprioriSSE : public SSE<SetSSE>
                 #pragma omp task firstprivate(set, occ) if(parallel) 
                 for (unsigned int tx = 0; tx < transactions.size(); tx++)
                 {
-                    unsigned int found = 0;
+                    bool found = true;
+                    unsigned int masks_number = (masks[tx] / 128);
                     __m128i *p_set = (__m128i *)(set), *p_tx = (__m128i *)transactions[tx];
                     for (unsigned int i = 0; i < MASK_SIZE / 128; i++)
                     {
 
                         __m128i set_128 = _mm_load_si128(p_set);
-                        __m128i xor_result = ((masks[tx] / 128) > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : _mm_xor_si128(_mm_setzero_si128(), set_128);
-                        found += _mm_testz_si128(xor_result, xor_result);
-                        if (found == i)
+                        __m128i xor_result = (masks_number > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : set_128;
+                        if (!(found = _mm_testz_si128(xor_result, xor_result)))
                             break;
                         ++p_set;
                         ++p_tx;
                     }
-                    if (found == MASK_SIZE / 128)
+                    if (found)
                         occurrencies[occ]++;
                 }
                 ++occ;
@@ -272,22 +272,22 @@ class AprioriSSE : public SSE<SetSSE>
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
                 unsigned int occ = 0;
+                unsigned int masks_number = (masks[tx] / 128);
                 for (const auto set : itemsets)
                 {
-                    unsigned int found = 0;
+                    bool found = true;
                     __m128i *p_set = (__m128i *)(set), *p_tx = (__m128i *)transactions[tx];
                     for (unsigned int i = 0; i < MASK_SIZE / 128; i++)
                     {
 
                         __m128i set_128 = _mm_load_si128(p_set);
-                        __m128i xor_result = ((masks[tx] / 128) > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : _mm_xor_si128(_mm_setzero_si128(), set_128);
-                        found += _mm_testz_si128(xor_result, xor_result);
-                        if (found == i)
+                        __m128i xor_result = (masks_number > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : set_128;
+                        if (!(found = _mm_testz_si128(xor_result, xor_result)))
                             break;
                         ++p_set;
                         ++p_tx;
                     }
-                    if (found == MASK_SIZE / 128)
+                    if (found)
                         #pragma omp atomic
                         occurrencies[occ]++;
                     ++occ;
@@ -439,20 +439,20 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                 #pragma omp for schedule(static) nowait
                 for (unsigned int tx = 0; tx < transactions.size(); tx++)
                 {
-                    unsigned int found = 0;
+                    unsigned int masks_number = masks[tx] / 128;
+                    bool found = true;
                     __m128i *p_set = (__m128i *)itemsets[set], *p_tx = (__m128i *)transactions[tx];
                     for (unsigned int i = 0; i < MASK_SIZE / 128; i++)
                     {
 
                         __m128i set_128 = _mm_load_si128(p_set);
-                        __m128i xor_result = ((masks[tx] / 128) > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : _mm_xor_si128(_mm_setzero_si128(), set_128);
-                        found += _mm_testz_si128(xor_result, xor_result);
-                        if (found == i)
+                        __m128i xor_result = (masks_number > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : set_128;
+                        if (!(found = _mm_testz_si128(xor_result, xor_result)))
                             break;
                         ++p_set;
                         ++p_tx;
                     }
-                    if (found == MASK_SIZE / 128)
+                    if (found)
                         #pragma omp atomic
                         occurrencies[set]++;
                 }
@@ -468,24 +468,24 @@ class SyncAprioriSSE : public SSE<VectorSSE>
             #pragma omp parallel
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
+                unsigned int masks_number = masks[tx] / 128;
                 //for every transaction
                 #pragma omp for schedule(static) nowait
                 for (unsigned int set = 0; set < itemsets.size(); set++)
                 {
-                    unsigned int found = 0;
+                    bool found = true;
                     __m128i *p_set = (__m128i *)itemsets[set], *p_tx = (__m128i *)transactions[tx];
                     for (unsigned int i = 0; i < MASK_SIZE / 128; i++)
                     {
 
                         __m128i set_128 = _mm_load_si128(p_set);
-                        __m128i xor_result = ((masks[tx] / 128) > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : _mm_xor_si128(_mm_setzero_si128(), set_128);
-                        found += _mm_testz_si128(xor_result, xor_result);
-                        if (found == i)
+                        __m128i xor_result = (masks_number > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : set_128;
+                        if (!(found = _mm_testz_si128(xor_result, xor_result)))
                             break;
                         ++p_set;
                         ++p_tx;
                     }
-                    if (found == MASK_SIZE / 128)
+                    if (found)
                         #pragma omp atomic
                         occurrencies[set]++;
                 }
