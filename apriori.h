@@ -30,7 +30,7 @@ struct VectorHash
 using VectorSet = std::unordered_set<std::vector<unsigned int>, VectorHash>;
 
 struct Vector {
-    typedef std::vector<unsigned int*>data_type;
+    typedef std::vector<unsigned int>data_type;
 };
 
 struct Set {
@@ -296,7 +296,7 @@ class Apriori : public AprioriBase <Set>
             }
             #pragma omp taskwait
             itemsets.swap(temp);
-            // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
     }
 };
@@ -317,8 +317,10 @@ class SyncApriori : public AprioriBase<Vector>
                 for (unsigned int j = i + 1; j < single_size; j++)
                 {
                     if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(tx_size))) >= support)
+                    #pragma omp critical (single_write)
                     {
-                        itemsets.push_back(new unsigned int[2]{i,j});
+                        itemsets.push_back(i);
+                        itemsets.push_back(j);
                     }
                 }
             // if (i%cache_regulator==0){
@@ -329,10 +331,11 @@ class SyncApriori : public AprioriBase<Vector>
 
     void map(unsigned int k, bool parallel)
     {
+        unsigned int itemsets_size = itemsets.size()/k;
+        occurrencies = std::vector<unsigned int>(itemsets_size, 0);
         
-        occurrencies = std::vector<unsigned int>(itemsets.size(), 0);
 
-        if(TX_BYTE_SIZE>(4*k*itemsets.size()))
+        if(TX_BYTE_SIZE>(4*itemsets.size()))
         {
             unsigned int cache_regulator = CACHE_SIZEE/(TX_BYTE_SIZE/transactions.size());
             #pragma omp parallel if(parallel)
@@ -340,7 +343,7 @@ class SyncApriori : public AprioriBase<Vector>
             {
                 //for every transaction
                 #pragma omp for schedule(static) nowait
-                for (unsigned int set = 0; set < itemsets.size(); set++)
+                for (unsigned int set = 0; set < itemsets_size; set++)
                 {
                     unsigned int found = 0, cont = 1, tx_cursor = 0, item = 0;
                     //for every item in itemset
@@ -350,11 +353,11 @@ class SyncApriori : public AprioriBase<Vector>
                         //for every item in transaction
                         while (!cont && tx_cursor < transactions[tx].size())
                         {
-                            if (itemsets[set][item] < (transactions[tx][tx_cursor]))
+                            if (itemsets[set*k+item] < (transactions[tx][tx_cursor]))
                             {
                                 break;
                             }
-                            else if (itemsets[set][item] == (transactions[tx][tx_cursor]))
+                            else if (itemsets[set*k+item] == (transactions[tx][tx_cursor]))
                             {
                                 ++found;
                                 cont = 1;
@@ -381,7 +384,7 @@ class SyncApriori : public AprioriBase<Vector>
         {
             unsigned int cache_regulator = CACHE_SIZEE/(k*4);
             #pragma omp parallel if(parallel)
-            for (unsigned int set = 0; set < itemsets.size(); set++)
+            for (unsigned int set = 0; set < itemsets_size; set++)
             {
                 //for every transaction
                 #pragma omp for schedule(static) nowait
@@ -395,11 +398,11 @@ class SyncApriori : public AprioriBase<Vector>
                         //for every item in transaction
                         while (!cont && tx_cursor < transactions[tx].size())
                         {
-                            if (itemsets[set][item] < (transactions[tx][tx_cursor]))
+                            if (itemsets[set*k+item] < (transactions[tx][tx_cursor]))
                             {
                                 break;
                             }
-                            else if (itemsets[set][item] == (transactions[tx][tx_cursor]))
+                            else if (itemsets[set*k+item] == (transactions[tx][tx_cursor]))
                             {
                                 ++found;
                                 cont = 1;
@@ -439,27 +442,27 @@ class SyncApriori : public AprioriBase<Vector>
         }
     };
 
-    void prune(double support)
-    {   
-        unsigned int size = transactions.size();
-        unsigned int tail = itemsets.size() - 1;
-        for(int i = tail; i>=0; i--)
-        {
-            if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) < support)
-            {   
-                delete [] (itemsets[i]);
-                itemsets[i] = itemsets[tail];
-                --tail;
-            }
-        }
-        itemsets.resize(tail+1);
-        // #pragma omp parallel if(parallel)
-        // #pragma single
-        // #pragma omp task
-        // {        
-        //     store_itemsets("sse_output.dat");
-        // }
-    }
+    // void prune(double support)
+    // {   
+    //     unsigned int size = transactions.size();
+    //     unsigned int tail = itemsets.size() - 1;
+    //     for(int i = tail; i>=0; i--)
+    //     {
+    //         if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) < support)
+    //         {   
+    //             delete [] (itemsets[i]);
+    //             itemsets[i] = itemsets[tail];
+    //             --tail;
+    //         }
+    //     }
+    //     itemsets.resize(tail+1);
+    //     // #pragma omp parallel if(parallel)
+    //     // #pragma single
+    //     // #pragma omp task
+    //     // {        
+    //     //     store_itemsets("sse_output.dat");
+    //     // }
+    // }
 
 
     void merge(unsigned int k, double support, bool parallel)
@@ -469,73 +472,87 @@ class SyncApriori : public AprioriBase<Vector>
         {
             
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
-            std::set<unsigned int *, Compare> temp;
-            std::vector<unsigned int*> v_temp;
+            std::set<std::vector<unsigned int>> temp;
+            std::vector<unsigned int> v_temp;
             unsigned int size = transactions.size();
-            unsigned int itemsets_size = itemsets.size();
+            unsigned int itemsets_size = itemsets.size()/(k-1);
             size_t cache_regulator = CACHE_SIZEE/(k-1)*4;
             //for every itemset, try to unite it with another in the itemsets vector
 
             // #pragma omp parallel
-            #pragma omp parallel for schedule(dynamic) if(parallel)
-            for (unsigned int i = 0; i < itemsets_size - 1; i++)
+            #pragma omp parallel if(parallel)
             {
-                if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
+                #pragma omp for schedule(dynamic) 
+                for (unsigned int i = 0; i < itemsets_size - 1; i++)
                 {
-                    
-                    // #pragma omp for schedule(static) nowait
-                    for (unsigned int j = i + 1; j < itemsets_size; j++)
+                    if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                     {
-                        if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
+                        unsigned int i_off = i*(k-1);
+                        // #pragma omp for schedule(static) nowait
+                        for (unsigned int j = i + 1; j < itemsets_size; j++)
                         {
-                            bool inserted = false;
-                            unsigned int * merged = new unsigned int[k];
-                            unsigned int m = 0, v1 = 0, v2 = 0, distance = 0;
-                            while (distance < 3 && m < k)
+
+                            if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {
-                                if (v2 == k - 1 || (v1 != k - 1 && itemsets[i][v1] < itemsets[j][v2]))
+                                
+                                std::vector<unsigned int> merged(k);
+                                unsigned int m = 0, v1 = 0, v2 = 0, distance = 0, j_off = j*(k-1);
+                                while (distance < 3 && m < k)
                                 {
-                                    merged[m] = itemsets[i][v1];
-                                    ++v1;
-                                    ++distance;
+                                    if (v2 == k - 1 || (v1 != k - 1 && itemsets[i_off+v1] < itemsets[j_off+v2]))
+                                    {
+                                        merged[m] = itemsets[i_off+v1];
+                                        ++v1;
+                                        ++distance;
+                                    }
+                                    else if (v1 == k - 1 || (v2 != k - 1 && itemsets[i_off+v1] > itemsets[j_off+v2]))
+                                    {
+                                        merged[m] = itemsets[j_off+v2];
+                                        ++v2;
+                                        ++distance;
+                                    }
+                                    else
+                                    {
+                                        merged[m] = itemsets[j_off+v2];
+                                        ++v1;
+                                        ++v2;
+                                    }
+                                    ++m;
                                 }
-                                else if (v1 == k - 1 || (v2 != k - 1 && itemsets[i][v1] > itemsets[j][v2]))
+                                if (distance == 2)
                                 {
-                                    merged[m] = itemsets[j][v2];
-                                    ++v2;
-                                    ++distance;
+                                    #pragma omp critical(merge_write)
+                                    {
+                                        temp.insert(merged);
+                                            {
+                                                // v_temp.insert(v_temp.end(), merged.begin(), merged.end());
+                                            }
+                                    }
                                 }
-                                else
-                                {
-                                    merged[m] = itemsets[j][v2];
-                                    ++v1;
-                                    ++v2;
-                                }
-                                ++m;
                             }
-                            if (distance == 2)
-                            {
-                                #pragma omp critical(merge_write)
-                                {
-                                    if (inserted=temp.insert(merged).second)
-                                        {
-                                        v_temp.push_back(merged);}
-                                }
-                            }
-                            if (!inserted)
-                                delete [] merged;
                         }
+                        // if (i%cache_regulator == 0){
+                        //     #pragma omp barrier
+                        // }
                     }
-                    // if (i%cache_regulator == 0){
-                    //     #pragma omp barrier
-                    // }
+                }
+
+                #pragma omp single
+                itemsets.resize(temp.size()*k);
+                {
+                    unsigned int i = 0;
+                    for (auto& set : temp)
+                    {
+                        #pragma omp task firstprivate(set, i), shared(itemsets)
+                        for (unsigned int j = 0; j<k; j++)
+                            itemsets[i+j] = set[j];
+                        i+=k;
+                        
+                    }
                 }
             }
-            itemsets.swap(v_temp);
-            #pragma omp parallel for
-            for (unsigned int i=0; i<v_temp.size(); i++)
-                delete [] v_temp[i];
-            // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            // itemsets.swap(v_temp);
+            std::cout << "ITEMSETS SIZE: " << itemsets.size()/k << "\n";
         }
     }
 };
