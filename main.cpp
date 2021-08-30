@@ -12,7 +12,7 @@ int main(int argc, char* argv[])
     }
     std::string file = argv[1];
     const double support = atof(argv[2]);
-    const int max_threads = std::min(atoi(argv[3]), omp_get_max_threads());
+    const int max_threads = std::max(1, std::min(atoi(argv[3]), omp_get_max_threads()));
 
     AprioriSSE sse_apriori;
     SyncAprioriSSE sync_sse;
