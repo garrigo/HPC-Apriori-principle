@@ -527,7 +527,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
 
     void merge(const unsigned int k, const double support, const int max_threads)
     {
-        prune(support, max_threads);
+        // prune(support, max_threads);
         if (!itemsets.empty())
         {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
@@ -539,15 +539,16 @@ class SyncAprioriSSE : public SSE<VectorSSE>
             //for every itemset, try to unite it with another in the itemsets vector
             #pragma omp parallel num_threads(max_threads)
             {
-                #pragma omp for schedule(dynamic)
+                // #pragma omp for schedule(dynamic)
                 for (unsigned int i = 0; i < itemsets_size - 1; i++)
                 {
-                    // if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
+                    if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                     {
+                        #pragma omp for schedule(static) nowait
                         for (unsigned int j = i + 1; j < itemsets_size; j++)
                         {
 
-                            // if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
+                            if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {
                                 unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
                                 unsigned int pow_count = 0;
@@ -590,6 +591,10 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                             }
                         }
                     }
+                    // if (i % 1000 == 0)
+                    // {
+                    //     #pragma omp barrier
+                    // }
                 }
                 
                 

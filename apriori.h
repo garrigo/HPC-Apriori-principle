@@ -454,29 +454,30 @@ class SyncApriori : public AprioriBase<Vector>
 
     void merge(const unsigned int k, const  double support, const int max_threads)
     {
-        prune(support, k-1, max_threads);
+        // prune(support, k-1, max_threads);
         if (!itemsets.empty())
         {
             
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
             std::set<std::vector<unsigned int>> temp;
-            // unsigned int size = transactions.size();
+            unsigned int size = transactions.size();
             unsigned int itemsets_size = itemsets.size()/(k-1);
             //for every itemset, try to unite it with another in the itemsets vector
 
             // #pragma omp parallel
             #pragma omp parallel num_threads(max_threads)
             {
-                #pragma omp for schedule(dynamic) 
+                // #pragma omp for schedule(dynamic)
                 for (unsigned int i = 0; i < itemsets_size - 1; i++)
                 {
-                    // if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
+                    if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                     {
                         unsigned int i_off = i*(k-1);
+                        #pragma omp for schedule(static) nowait 
                         for (unsigned int j = i + 1; j < itemsets_size; j++)
                         {
 
-                            // if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
+                            if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {
                                 
                                 std::vector<unsigned int> merged(k);
@@ -512,6 +513,10 @@ class SyncApriori : public AprioriBase<Vector>
                             }
                         }
                     }
+                    // if (i % 1000 == 0)
+                    // {
+                    //     #pragma omp barrier
+                    // }
                 }
 
                 #pragma omp single
