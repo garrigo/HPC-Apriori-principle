@@ -62,9 +62,9 @@ protected:
     typename ItemsetType::data_type  itemsets;
     std::vector<unsigned int> occurrencies;
 
-    virtual void singles_merge(double, bool) = 0;
-    virtual void map(unsigned int, bool) = 0;
-    virtual void merge(unsigned int, double, bool) = 0;
+    virtual void singles_merge(const double, const int) = 0;
+    virtual void map(const unsigned int, const int) = 0;
+    virtual void merge(const unsigned int, const double, const int) = 0;
   
     void store_single_items(std::string filename)
     {
@@ -110,7 +110,7 @@ protected:
             _mm_store_si128((__m128i *)(buf + (m * 4)), _mm_setzero_si128());
     }
 
-    void read_data(const std::string input_file, bool parallel = 1)
+    void read_data(const std::string input_file, int max_threads)
     {
 
         std::ifstream ifs;
@@ -173,20 +173,20 @@ protected:
     } 
 
 public:
-    void run(const std::string input_file, double support, bool parallel = 1)
+    void run(const std::string input_file, const double support, const int max_threads)
     {   
         
         unsigned int k = 2;
         MASK_SIZE = 128;
-        read_data(input_file, parallel);
-        singles_merge(support, parallel); 
+        read_data(input_file, max_threads);
+        singles_merge(support, max_threads); 
         while (!itemsets.empty())
         {
-            map(k, parallel);
+            map(k, max_threads);
             ++k;
-            merge(k, support, parallel);
+            merge(k, support, max_threads);
         }
-        #pragma omp parallel for if (parallel)
+        #pragma omp parallel for num_threads(max_threads)
         for (unsigned int i = 0; i < transactions.size(); i++)
             _mm_free(transactions[i]);
     }
@@ -197,9 +197,9 @@ public:
 class AprioriSSE : public SSE<SetSSE>
 {
 
-    void singles_merge(double support, bool parallel = 1)
+    void singles_merge(const double support, const int max_threads)
     {
-        #pragma omp parallel for if (parallel) schedule(dynamic)
+        #pragma omp parallel for num_threads(max_threads) schedule(dynamic)
         for (unsigned int i = 0; i < single_items.size() - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(transactions.size()))) >= support)
@@ -218,7 +218,7 @@ class AprioriSSE : public SSE<SetSSE>
                     }
                 }
         }
-        // #pragma omp parallel if(parallel)
+        // #pragma omp parallel if(max_threads>1)
         // #pragma single
         // #pragma omp task
         // {        
@@ -227,7 +227,7 @@ class AprioriSSE : public SSE<SetSSE>
         // }
     }
 
-    void map(unsigned int k, bool parallel = 1)
+    void map(const unsigned int k, const int max_threads)
     {
         
         if(transactions.size() < itemsets.size())
@@ -235,13 +235,13 @@ class AprioriSSE : public SSE<SetSSE>
             unsigned int occ = 0;
             occurrencies.resize(itemsets.size());
             //for every itemset
-            #pragma omp parallel if (parallel)
+            #pragma omp parallel num_threads(max_threads)
             #pragma omp single
             for (const auto set : itemsets)
             {
                 occurrencies[occ] = 0;
                 //for every transaction
-                #pragma omp task firstprivate(set, occ) if(parallel) 
+                #pragma omp task firstprivate(set, occ) if(max_threads>1) 
                 for (unsigned int tx = 0; tx < transactions.size(); tx++)
                 {
                     bool found = true;
@@ -268,7 +268,7 @@ class AprioriSSE : public SSE<SetSSE>
         {
             occurrencies = std::vector<unsigned int>(itemsets.size(), 0);
 
-            #pragma omp parallel for schedule(static) if (parallel)
+            #pragma omp parallel for schedule(static) num_threads(max_threads)
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
                 unsigned int occ = 0;
@@ -296,7 +296,7 @@ class AprioriSSE : public SSE<SetSSE>
         }
     }
 
-    void prune(double support, bool parallel)
+    void prune(const double support, const int max_threads)
     {   
         unsigned int occ = 0;
         unsigned int size = transactions.size();
@@ -311,7 +311,7 @@ class AprioriSSE : public SSE<SetSSE>
                 ++item_set;
             ++occ;
         }
-        // #pragma omp parallel if(parallel)
+        // #pragma omp parallel num_threads(max_threads)
         // #pragma single
         // #pragma omp task
         // {        
@@ -319,78 +319,81 @@ class AprioriSSE : public SSE<SetSSE>
         // }
     }
 
-    void merge(unsigned int k, double support, bool parallel = 1)
+    void merge(const unsigned int k, const double support, const int max_threads)
     {
-        prune(support, parallel);
+        prune(support, max_threads);
         if (!itemsets.empty())
         {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
             std::set<unsigned int *, Compare> temp;
             auto itemset_x = itemsets.begin();
             //for every itemset, try to unite it with another in the itemsets vector
-            #pragma omp parallel if (parallel) 
-            #pragma omp single
-            while (itemset_x != itemsets.end())
+            #pragma omp parallel num_threads(max_threads)
             {
-
-                
-                #pragma omp task firstprivate(itemset_x), shared(temp) if(parallel)
+                #pragma omp single
+                while (itemset_x != itemsets.end())
                 {
-                    auto itemset_y = itemset_x;
-                    itemset_y++;
-                    while (itemset_y != itemsets.end())
+
+                    
+                    #pragma omp task firstprivate(itemset_x), shared(temp)
                     {
-                        unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
-                        unsigned int pow_count = 0;
-
-                        bool inserted = false, next = true;
-                        __m128i *p_buf = (__m128i *)buf, *p_seti = (__m128i *)(*itemset_x), *p_setj = (__m128i *)(*itemset_y);
-                        for (unsigned int mask = 0; next && pow_count <= 1 && mask < MASK_SIZE / 128; mask++)
-                        {
-                            unsigned int check_result[8];
-                            __m128i m_seti = _mm_load_si128(p_seti);
-                            __m128i or_result = _mm_or_si128(m_seti, _mm_load_si128(p_setj));
-                            __m128i xor_result = _mm_xor_si128(m_seti, or_result);
-                            _mm_storeu_si128((__m128i *)check_result, xor_result);
-                            _mm_storeu_si128((__m128i *)(check_result + 4), _mm_and_si128(xor_result, _mm_sub_epi32(xor_result, _mm_set1_epi32(1))));
-                            for (unsigned int b = 0; b < 4; b++)
-                            {
-                                if (check_result[b])
-                                    if (!(check_result[b + 4]))
-                                        pow_count++;
-                                    else
-                                    {
-                                        pow_count = 2;
-                                        next = false;
-                                    }
-                            }
-                            _mm_store_si128(p_buf, or_result);
-                            ++p_buf;
-                            ++p_seti;
-                            ++p_setj;
-                        }
-
-                        if (pow_count == 1)
-                        {
-                            #pragma omp critical(merge_write)
-                                {inserted = temp.insert(buf).second;}
-                        }
-                        if (!inserted)
-                            _mm_free(buf);
+                        auto itemset_y = itemset_x;
                         itemset_y++;
-                        
+                        while (itemset_y != itemsets.end())
+                        {
+                            unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
+                            unsigned int pow_count = 0;
+
+                            bool inserted = false, next = true;
+                            __m128i *p_buf = (__m128i *)buf, *p_seti = (__m128i *)(*itemset_x), *p_setj = (__m128i *)(*itemset_y);
+                            for (unsigned int mask = 0; next && pow_count <= 1 && mask < MASK_SIZE / 128; mask++)
+                            {
+                                unsigned int check_result[8];
+                                __m128i m_seti = _mm_load_si128(p_seti);
+                                __m128i or_result = _mm_or_si128(m_seti, _mm_load_si128(p_setj));
+                                __m128i xor_result = _mm_xor_si128(m_seti, or_result);
+                                _mm_storeu_si128((__m128i *)check_result, xor_result);
+                                _mm_storeu_si128((__m128i *)(check_result + 4), _mm_and_si128(xor_result, _mm_sub_epi32(xor_result, _mm_set1_epi32(1))));
+                                for (unsigned int b = 0; b < 4; b++)
+                                {
+                                    if (check_result[b])
+                                        if (!(check_result[b + 4]))
+                                            pow_count++;
+                                        else
+                                        {
+                                            pow_count = 2;
+                                            next = false;
+                                        }
+                                }
+                                _mm_store_si128(p_buf, or_result);
+                                ++p_buf;
+                                ++p_seti;
+                                ++p_setj;
+                            }
+
+                            if (pow_count == 1)
+                            {
+                                #pragma omp critical(merge_write)
+                                    {inserted = temp.insert(buf).second;}
+                            }
+                            if (!inserted)
+                                _mm_free(buf);
+                            itemset_y++;
+                            
+                        }
                     }
+                    ++itemset_x;
                 }
-                ++itemset_x;
+                #pragma omp taskwait
+                #pragma omp single
+                {
+                    itemsets.swap(temp);
+                    for (auto set : temp)
+                        #pragma omp task if(max_threads>1) firstprivate(set)
+                        {_mm_free(set);}
+                }
+                #pragma omp taskwait
             }
-            #pragma omp taskwait
-            itemsets.swap(temp);
-            #pragma omp parallel if (parallel)
-            #pragma omp single
-            for (auto set : temp)
-                #pragma omp task if(parallel) firstprivate(set)
-                {_mm_free(set);}
-            #pragma omp taskwait
         }
 
         // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
@@ -402,10 +405,10 @@ class SyncAprioriSSE : public SSE<VectorSSE>
 {
     unsigned int cache_regulator;
 
-    void singles_merge(double support, bool parallel = 1)
+    void singles_merge(const double support, const int max_threads)
     {
         cache_regulator = CACHE_SIZE / (MASK_SIZE/8); 
-        #pragma omp parallel for schedule(dynamic)
+        #pragma omp parallel for schedule(dynamic) num_threads(max_threads)
         for (unsigned int i = 0; i < single_items.size() - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(transactions.size()))) >= support)
@@ -426,13 +429,13 @@ class SyncAprioriSSE : public SSE<VectorSSE>
         }
     }
 
-    void map(unsigned int k, bool parallel = 1)
+    void map(const unsigned int k, const int max_threads)
     {
         occurrencies = std::vector<unsigned int>(itemsets.size(), 0);
         if (transactions.size() < itemsets.size())
         {
             //for every itemset
-            #pragma omp parallel
+            #pragma omp parallel num_threads(max_threads)
             for (unsigned int set = 0; set < itemsets.size(); set++)
             {
                 //for every transaction
@@ -465,7 +468,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
         else
         {
             //for every itemset
-            #pragma omp parallel
+            #pragma omp parallel num_threads(max_threads)
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
                 unsigned int masks_number = masks[tx] / 128;
@@ -497,7 +500,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
         }
     }
 
-    void prune(double support)
+    void prune(const double support, const int max_threads )
     {   
         unsigned int size = transactions.size();
         unsigned int tail = itemsets.size() - 1;
@@ -511,7 +514,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
             }
         }
         itemsets.resize(tail+1);
-        // #pragma omp parallel if(parallel)
+        // #pragma omp parallel num_threads(max_threads)
         // #pragma single
         // #pragma omp task
         // {        
@@ -519,7 +522,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
         // }
     }
 
-    void merge(unsigned int k, double support, bool parallel = 1)
+    void merge(const unsigned int k, const double support, const int max_threads)
     {
         // prune(support);
         if (!itemsets.empty())
@@ -531,63 +534,67 @@ class SyncAprioriSSE : public SSE<VectorSSE>
             unsigned int itemsets_size = itemsets.size();
 
             //for every itemset, try to unite it with another in the itemsets vector
-            #pragma omp parallel for schedule(dynamic)
-            for (unsigned int i = 0; i < itemsets_size - 1; i++)
+            #pragma omp parallel num_threads(max_threads)
             {
-                if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
+                #pragma omp for schedule(dynamic)
+                for (unsigned int i = 0; i < itemsets_size - 1; i++)
                 {
-                    for (unsigned int j = i + 1; j < itemsets_size; j++)
+                    if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                     {
-
-                        if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
+                        for (unsigned int j = i + 1; j < itemsets_size; j++)
                         {
-                            unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
-                            unsigned int pow_count = 0;
 
-                            bool inserted = false, next = true;
-                            __m128i *p_buf = (__m128i *)buf, *p_seti = (__m128i *)itemsets[i], *p_setj = (__m128i *)itemsets[j];
-                            for (unsigned int mask = 0; next && pow_count <= 1 && mask < MASK_SIZE / 128; mask++)
+                            if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {
-                                unsigned int check_result[8];
-                                __m128i m_seti = _mm_load_si128(p_seti);
-                                __m128i or_result = _mm_or_si128(m_seti, _mm_load_si128(p_setj));
-                                __m128i xor_result = _mm_xor_si128(m_seti, or_result);
-                                _mm_storeu_si128((__m128i *)check_result, xor_result);
-                                _mm_storeu_si128((__m128i *)(check_result + 4), _mm_and_si128(xor_result, _mm_sub_epi32(xor_result, _mm_set1_epi32(1))));
-                                for (unsigned int b = 0; b < 4; b++)
+                                unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
+                                unsigned int pow_count = 0;
+
+                                bool inserted = false, next = true;
+                                __m128i *p_buf = (__m128i *)buf, *p_seti = (__m128i *)itemsets[i], *p_setj = (__m128i *)itemsets[j];
+                                for (unsigned int mask = 0; next && pow_count <= 1 && mask < MASK_SIZE / 128; mask++)
                                 {
-                                    if (check_result[b])
-                                        if (!(check_result[b + 4]))
-                                            pow_count++;
-                                        else
-                                        {
-                                            pow_count = 2;
-                                            next = false;
-                                        }
+                                    unsigned int check_result[8];
+                                    __m128i m_seti = _mm_load_si128(p_seti);
+                                    __m128i or_result = _mm_or_si128(m_seti, _mm_load_si128(p_setj));
+                                    __m128i xor_result = _mm_xor_si128(m_seti, or_result);
+                                    _mm_storeu_si128((__m128i *)check_result, xor_result);
+                                    _mm_storeu_si128((__m128i *)(check_result + 4), _mm_and_si128(xor_result, _mm_sub_epi32(xor_result, _mm_set1_epi32(1))));
+                                    for (unsigned int b = 0; b < 4; b++)
+                                    {
+                                        if (check_result[b])
+                                            if (!(check_result[b + 4]))
+                                                pow_count++;
+                                            else
+                                            {
+                                                pow_count = 2;
+                                                next = false;
+                                            }
+                                    }
+                                    _mm_store_si128(p_buf, or_result);
+                                    ++p_buf;
+                                    ++p_seti;
+                                    ++p_setj;
                                 }
-                                _mm_store_si128(p_buf, or_result);
-                                ++p_buf;
-                                ++p_seti;
-                                ++p_setj;
-                            }
 
-                            if (pow_count == 1)
-                            {
-                                #pragma omp critical(merge_write)
-                                if (inserted = temp.insert(buf).second)
-                                    v_temp.push_back(buf);
+                                if (pow_count == 1)
+                                {
+                                    #pragma omp critical(merge_write)
+                                    if (inserted = temp.insert(buf).second)
+                                        v_temp.push_back(buf);
+                                }
+                                if (!inserted)
+                                    _mm_free(buf);
                             }
-                            if (!inserted)
-                                _mm_free(buf);
                         }
                     }
                 }
+                
+                
+                #pragma omp for schedule(static)
+                for (unsigned int i = 0; i < itemsets.size(); i++)
+                    _mm_free(itemsets[i]);
             }
-            
             itemsets.swap(v_temp);
-            #pragma omp parallel for if (parallel)
-            for (unsigned int i = 0; i < v_temp.size(); i++)
-                _mm_free(v_temp[i]);
         }
 
         // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";

@@ -48,9 +48,9 @@ protected:
     std::vector<unsigned int> occurrencies;
     size_t TX_BYTE_SIZE = 0;
 
-    virtual void singles_merge(double, bool) = 0;
-    virtual void map(unsigned int, bool) = 0;
-    virtual void merge(unsigned int, double, bool) = 0;
+    virtual void singles_merge(const double, const int) = 0;
+    virtual void map(const unsigned int, const int) = 0;
+    virtual void merge(const unsigned int, const double, const int) = 0;
 
 
     void store_itemsets(const std::string& filename)
@@ -75,7 +75,7 @@ protected:
         else std::cout << "Unable to open sse_output.dat file\n";
     }
 
-    void read_data(const std::string input_file, bool parallel)
+    void read_data(const std::string input_file, const int max_threads)
     {
         std::ifstream ifs;
         ifs.open(input_file);
@@ -86,7 +86,7 @@ protected:
         }
         std::string doc_buffer;
 
-        #pragma omp parallel if(parallel)
+        #pragma omp parallel num_threads(max_threads)
         #pragma omp single
         while (!getline(ifs, doc_buffer).eof())
         {
@@ -117,7 +117,7 @@ protected:
                     }
                 }
             }
-            #pragma omp task firstprivate(line_buffer), shared(transactions) if(parallel)
+            #pragma omp task firstprivate(line_buffer), shared(transactions)
             {
                 TX_BYTE_SIZE += line_buffer.size()*4;
                 std::sort(line_buffer.begin(), line_buffer.end());
@@ -130,16 +130,16 @@ protected:
     }
 
 public:
-    void run(const std::string input_file, double support, bool parallel)
+    void run(const std::string input_file, const double support, const int max_threads)
     {
         k = 2;
-        read_data(input_file, parallel);
-        singles_merge(support, parallel);
+        read_data(input_file, max_threads);
+        singles_merge(support, max_threads);
         while (!itemsets.empty())
         {
-            map(k, parallel);
+            map(k, max_threads);
             ++(k);
-            merge(k, support, parallel);
+            merge(k, support, max_threads);
         }
     }
 
@@ -147,9 +147,9 @@ public:
 
 class Apriori : public AprioriBase <Set>
 {
-    void singles_merge(double support, bool parallel)
+    void singles_merge(const double support, const int max_threads)
     {
-        #pragma omp parallel for schedule(dynamic) if(parallel)
+        #pragma omp parallel for schedule(dynamic) num_threads(max_threads)
         for (unsigned int i = 0; i < single_items.size() - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(transactions.size()))) >= support)
@@ -162,22 +162,22 @@ class Apriori : public AprioriBase <Set>
                     }
                 }
         }
-        // #pragma omp parallel if(parallel)
+        // #pragma omp parallel num_threads(max_threads)
         // #pragma omp single
         // #pragma omp task
         // store_itemsets("nosse_set_output.dat");
     }
 
-    void map(unsigned int k, bool parallel)
+    void map(const unsigned int k, const int max_threads)
     {
         occurrencies.resize(itemsets.size());
         //for every itemset
         unsigned int occ = 0;
-        #pragma omp parallel if(parallel)
+        #pragma omp parallel num_threads(max_threads)
         #pragma omp single
         for (const auto& set : itemsets)
         {        
-            #pragma omp task firstprivate(set, occ) if(parallel) 
+            #pragma omp task firstprivate(set, occ)
             {
                 occurrencies[occ] = 0;
                 //for every transaction
@@ -220,7 +220,7 @@ class Apriori : public AprioriBase <Set>
         #pragma omp taskwait
     }
 
-    void prune(double support, bool parallel)
+    void prune(const double support, const int max_threads)
     {   
         unsigned int occ = 0;
         unsigned int size = transactions.size();
@@ -235,26 +235,26 @@ class Apriori : public AprioriBase <Set>
                 ++item_set;
             ++occ;
         }
-        // #pragma omp parallel if(parallel)
+        // #pragma omp parallel num_threads(max_threads)
         // #pragma omp single
         // #pragma omp task
         // store_itemsets("nosse_set_output.dat");
     }
 
-    void merge(unsigned int k, double support, bool parallel)
+    void merge(const unsigned int k, const double support, const int max_threads)
     {
-        prune(support, parallel);
+        prune(support, max_threads);
         if (!itemsets.empty())
         {
             VectorSet temp;
             //for every itemset, try to unite it with another in the itemsets vector
             auto itemset_x = itemsets.begin();
-            #pragma omp parallel if(parallel)
+            #pragma omp parallel num_threads(max_threads)
             #pragma omp single
             while (itemset_x != itemsets.end())
             {
                     
-                #pragma omp task firstprivate(itemset_x), shared(temp) if(parallel)
+                #pragma omp task firstprivate(itemset_x), shared(temp)
                 {
                     auto itemset_y = itemset_x;
                     itemset_y++;
@@ -296,7 +296,7 @@ class Apriori : public AprioriBase <Set>
             }
             #pragma omp taskwait
             itemsets.swap(temp);
-            std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
+            // std::cout << "ITEMSETS SIZE: " << itemsets.size() << "\n";
         }
     }
 };
@@ -305,11 +305,11 @@ class Apriori : public AprioriBase <Set>
 class SyncApriori : public AprioriBase<Vector>
 {
 
-    void singles_merge(double support, bool parallel)
+    void singles_merge(const double support, const int max_threads)
     {
         const unsigned int tx_size = transactions.size(), single_size = single_items.size();
         // const unsigned int cache_regulator = std::max((500000/byte_size), 1U);
-        #pragma parallel for schedule(dynamic) if(parallel)
+        #pragma parallel for schedule(dynamic) num_threads(max_threads)
         for (unsigned int i = 0; i < single_size - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(tx_size))) >= support)
@@ -329,7 +329,7 @@ class SyncApriori : public AprioriBase<Vector>
         }
     }
 
-    void map(unsigned int k, bool parallel)
+    void map(const unsigned int k, const int max_threads)
     {
         unsigned int itemsets_size = itemsets.size()/k;
         occurrencies = std::vector<unsigned int>(itemsets_size, 0);
@@ -338,7 +338,7 @@ class SyncApriori : public AprioriBase<Vector>
         if(TX_BYTE_SIZE>(4*itemsets.size()))
         {
             unsigned int cache_regulator = CACHE_SIZEE/(TX_BYTE_SIZE/transactions.size());
-            #pragma omp parallel if(parallel)
+            #pragma omp parallel num_threads(max_threads)
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
                 //for every transaction
@@ -383,7 +383,7 @@ class SyncApriori : public AprioriBase<Vector>
         else
         {
             unsigned int cache_regulator = CACHE_SIZEE/(k*4);
-            #pragma omp parallel if(parallel)
+            #pragma omp parallel num_threads(max_threads)
             for (unsigned int set = 0; set < itemsets_size; set++)
             {
                 //for every transaction
@@ -426,23 +426,9 @@ class SyncApriori : public AprioriBase<Vector>
         }
     }
 
-    struct Compare
-    {
-        bool operator()(unsigned int * __restrict__ a, unsigned int * __restrict__ b) const
-        {
-            
-            for (unsigned int i = 0; i < k; i++)
-            {
-                if(a[i] < b[i])
-                    return true;
-                else if (a[i] > b[i])
-                    return false;
-            }
-            return false;
-        }
-    };
 
-    // void prune(double support)
+
+    // void prune(const double support, const int max_threads)
     // {   
     //     unsigned int size = transactions.size();
     //     unsigned int tail = itemsets.size() - 1;
@@ -456,7 +442,7 @@ class SyncApriori : public AprioriBase<Vector>
     //         }
     //     }
     //     itemsets.resize(tail+1);
-    //     // #pragma omp parallel if(parallel)
+    //     // #pragma omp parallel num_threads(max_threads)
     //     // #pragma single
     //     // #pragma omp task
     //     // {        
@@ -465,7 +451,7 @@ class SyncApriori : public AprioriBase<Vector>
     // }
 
 
-    void merge(unsigned int k, double support, bool parallel)
+    void merge(const unsigned int k, const  double support, const int max_threads)
     {
         // prune(support);
         if (!itemsets.empty())
@@ -480,7 +466,7 @@ class SyncApriori : public AprioriBase<Vector>
             //for every itemset, try to unite it with another in the itemsets vector
 
             // #pragma omp parallel
-            #pragma omp parallel if(parallel)
+            #pragma omp parallel num_threads(max_threads)
             {
                 #pragma omp for schedule(dynamic) 
                 for (unsigned int i = 0; i < itemsets_size - 1; i++)
@@ -522,12 +508,8 @@ class SyncApriori : public AprioriBase<Vector>
                                 if (distance == 2)
                                 {
                                     #pragma omp critical(merge_write)
-                                    {
-                                        temp.insert(merged);
-                                            {
-                                                // v_temp.insert(v_temp.end(), merged.begin(), merged.end());
-                                            }
-                                    }
+                                    temp.insert(merged);
+                                    
                                 }
                             }
                         }
@@ -550,9 +532,11 @@ class SyncApriori : public AprioriBase<Vector>
                         
                     }
                 }
+                
             }
+            #pragma omp taskwait
             // itemsets.swap(v_temp);
-            std::cout << "ITEMSETS SIZE: " << itemsets.size()/k << "\n";
+            // std::cout << "ITEMSETS SIZE: " << itemsets.size()/k << "\n";
         }
     }
 };
