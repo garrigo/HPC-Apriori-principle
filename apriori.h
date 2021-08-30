@@ -308,12 +308,10 @@ class SyncApriori : public AprioriBase<Vector>
     void singles_merge(const double support, const int max_threads)
     {
         const unsigned int tx_size = transactions.size(), single_size = single_items.size();
-        // const unsigned int cache_regulator = std::max((500000/byte_size), 1U);
         #pragma parallel for schedule(dynamic) num_threads(max_threads)
         for (unsigned int i = 0; i < single_size - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(tx_size))) >= support)
-                // #pragma omp for schedule(static) nowait
                 for (unsigned int j = i + 1; j < single_size; j++)
                 {
                     if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(tx_size))) >= support)
@@ -323,9 +321,6 @@ class SyncApriori : public AprioriBase<Vector>
                         itemsets.push_back(j);
                     }
                 }
-            // if (i%cache_regulator==0){
-            //     #pragma omp barrier
-            // }
         }
     }
 
@@ -428,41 +423,45 @@ class SyncApriori : public AprioriBase<Vector>
 
 
 
-    // void prune(const double support, const int max_threads)
-    // {   
-    //     unsigned int size = transactions.size();
-    //     unsigned int tail = itemsets.size() - 1;
-    //     for(int i = tail; i>=0; i--)
-    //     {
-    //         if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) < support)
-    //         {   
-    //             delete [] (itemsets[i]);
-    //             itemsets[i] = itemsets[tail];
-    //             --tail;
-    //         }
-    //     }
-    //     itemsets.resize(tail+1);
-    //     // #pragma omp parallel num_threads(max_threads)
-    //     // #pragma single
-    //     // #pragma omp task
-    //     // {        
-    //     //     store_itemsets("sse_output.dat");
-    //     // }
-    // }
+    void prune(const double support, const unsigned int k, const int max_threads)
+    {   
+        unsigned int size = transactions.size();
+        // unsigned int tail = itemsets.size() - 1;
+        std::vector<unsigned int> temp;
+        #pragma omp parallel num_threads(max_threads)
+        {
+            #pragma omp for schedule(static) 
+            for(int i = 0; i<itemsets.size(); i+=k)
+            {
+                if ((static_cast<double>(occurrencies[i/k]) / (static_cast<double>(size))) >= support)
+                {   
+                    #pragma omp critical(prune)
+                    for (unsigned int j = 0; j<k; j++)
+                        temp.push_back(itemsets[i+j]);
+                }
+            }
+            #pragma single
+            {
+                
+                // #pragma omp task    
+                // store_itemsets("sse_output.dat");
+            }
+
+        }
+        itemsets.swap(temp);
+    }
 
 
     void merge(const unsigned int k, const  double support, const int max_threads)
     {
-        // prune(support);
+        prune(support, k-1, max_threads);
         if (!itemsets.empty())
         {
             
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
             std::set<std::vector<unsigned int>> temp;
-            std::vector<unsigned int> v_temp;
-            unsigned int size = transactions.size();
+            // unsigned int size = transactions.size();
             unsigned int itemsets_size = itemsets.size()/(k-1);
-            size_t cache_regulator = CACHE_SIZEE/(k-1)*4;
             //for every itemset, try to unite it with another in the itemsets vector
 
             // #pragma omp parallel
@@ -471,14 +470,13 @@ class SyncApriori : public AprioriBase<Vector>
                 #pragma omp for schedule(dynamic) 
                 for (unsigned int i = 0; i < itemsets_size - 1; i++)
                 {
-                    if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
+                    // if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                     {
                         unsigned int i_off = i*(k-1);
-                        // #pragma omp for schedule(static) nowait
                         for (unsigned int j = i + 1; j < itemsets_size; j++)
                         {
 
-                            if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
+                            // if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {
                                 
                                 std::vector<unsigned int> merged(k);
@@ -513,15 +511,12 @@ class SyncApriori : public AprioriBase<Vector>
                                 }
                             }
                         }
-                        // if (i%cache_regulator == 0){
-                        //     #pragma omp barrier
-                        // }
                     }
                 }
 
                 #pragma omp single
-                itemsets.resize(temp.size()*k);
                 {
+                    itemsets.resize(temp.size()*k);
                     unsigned int i = 0;
                     for (auto& set : temp)
                     {
@@ -531,11 +526,8 @@ class SyncApriori : public AprioriBase<Vector>
                         i+=k;
                         
                     }
-                }
-                
+                } 
             }
-            #pragma omp taskwait
-            // itemsets.swap(v_temp);
             // std::cout << "ITEMSETS SIZE: " << itemsets.size()/k << "\n";
         }
     }

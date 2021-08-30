@@ -503,17 +503,20 @@ class SyncAprioriSSE : public SSE<VectorSSE>
     void prune(const double support, const int max_threads )
     {   
         unsigned int size = transactions.size();
-        unsigned int tail = itemsets.size() - 1;
-        for(int i = tail; i>=0; i--)
+        // unsigned int tail = itemsets.size() - 1;
+        std::vector<unsigned int *> temp;
+        #pragma omp parallel for schedule(static) num_threads(max_threads)
+        for(int i = 0; i<itemsets.size(); i++)
         {
-            if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) < support)
+            if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
             {   
-                _mm_free(itemsets[i]);
-                itemsets[i] = itemsets[tail];
-                --tail;
+                #pragma omp critical (prune)
+                {temp.push_back(itemsets[i]);}
             }
+            else
+                _mm_free(itemsets[i]);
         }
-        itemsets.resize(tail+1);
+        itemsets.swap(temp);
         // #pragma omp parallel num_threads(max_threads)
         // #pragma single
         // #pragma omp task
@@ -524,7 +527,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
 
     void merge(const unsigned int k, const double support, const int max_threads)
     {
-        // prune(support);
+        prune(support, max_threads);
         if (!itemsets.empty())
         {
             // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
@@ -539,12 +542,12 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                 #pragma omp for schedule(dynamic)
                 for (unsigned int i = 0; i < itemsets_size - 1; i++)
                 {
-                    if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
+                    // if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
                     {
                         for (unsigned int j = i + 1; j < itemsets_size; j++)
                         {
 
-                            if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
+                            // if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {
                                 unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
                                 unsigned int pow_count = 0;
