@@ -218,7 +218,7 @@ class AprioriSSE : public SSE<SetSSE>
                     }
                 }
         }
-        // #pragma omp parallel if(max_threads>1)
+        // #pragma omp parallel num_threads(max_threads)
         // #pragma single
         // #pragma omp task
         // {        
@@ -241,7 +241,7 @@ class AprioriSSE : public SSE<SetSSE>
             {
                 occurrencies[occ] = 0;
                 //for every transaction
-                #pragma omp task firstprivate(set, occ) if(max_threads>1) 
+                #pragma omp task firstprivate(set, occ)
                 for (unsigned int tx = 0; tx < transactions.size(); tx++)
                 {
                     bool found = true;
@@ -389,7 +389,7 @@ class AprioriSSE : public SSE<SetSSE>
                 {
                     itemsets.swap(temp);
                     for (auto set : temp)
-                        #pragma omp task if(max_threads>1) firstprivate(set)
+                        #pragma omp task firstprivate(set)
                         {_mm_free(set);}
                 }
                 #pragma omp taskwait
