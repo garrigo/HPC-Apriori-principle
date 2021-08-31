@@ -9,9 +9,7 @@
 #include <unordered_set>
 #include <omp.h>
 
-constexpr unsigned int byte_size = sizeof(unsigned int);
-static constexpr size_t CACHE_SIZEE = 4194304;
-static unsigned int k;
+
 
 struct VectorHash
 {
@@ -47,6 +45,7 @@ protected:
     std::vector<std::string> single_items;
     std::vector<unsigned int> occurrencies;
     size_t TX_BYTE_SIZE = 0;
+    static constexpr size_t CACHE_SIZE = 1048576;
 
     virtual void singles_merge(const double, const int) = 0;
     virtual void map(const unsigned int, const int) = 0;
@@ -89,6 +88,7 @@ protected:
         #pragma omp parallel num_threads(max_threads)
         #pragma omp single
         while (!getline(ifs, doc_buffer).eof())
+        #pragma omp task firstprivate(doc_buffer)
         {
             std::vector<unsigned int> line_buffer;
             std::istringstream iss(doc_buffer);
@@ -99,40 +99,62 @@ protected:
                 if (!isspace(token[0]))
                 {
                     bool clear = 1;
-                    for (unsigned int i = 0; i < single_items.size(); i++)
+                    unsigned i, temp_size;
+                    #pragma omp critical (push_single)
+                    temp_size = single_items.size();
+                    // #pragma omp critical (push_single)
                     {
-                        if (single_items[i] == token)
+                        for (i = 0; i < temp_size; i++)
                         {
-                            clear = 0;
-                            line_buffer.push_back(i);
-                            occurrencies[i]++;
-                            break;
+                            if (single_items[i] == token)
+                            {
+                                clear = 0;
+                                #pragma omp atomic
+                                occurrencies[i]++;
+                                break;
+                            }
+                        }
+                        if (clear)
+                        {
+                            #pragma omp critical (push_single)
+                            {
+                                if (temp_size != single_items.size())
+                                {
+                                    for (i = temp_size; i < single_items.size(); i++)
+                                    {
+                                        if (single_items[i] == token)
+                                        {
+                                            clear = 0;
+                                            #pragma omp atomic
+                                            occurrencies[i]++;
+                                            break;
+                                        }
+                                    }                                    
+                                }
+                                if(clear){
+                                    single_items.push_back(token);
+                                    occurrencies.push_back(1); 
+                                }                               
+                            }
                         }
                     }
-                    if (clear)
-                    {
-                        single_items.push_back(token);
-                        occurrencies.push_back(1);
-                        line_buffer.push_back(single_items.size() - 1);
-                    }
+                    line_buffer.push_back(i);
                 }
             }
-            #pragma omp task firstprivate(line_buffer), shared(transactions)
-            {
-                TX_BYTE_SIZE += line_buffer.size()*4;
-                std::sort(line_buffer.begin(), line_buffer.end());
-                #pragma omp critical (push)
-                transactions.push_back(line_buffer);
-            }
+            #pragma omp atomic
+            TX_BYTE_SIZE += line_buffer.size()*4;
+            std::sort(line_buffer.begin(), line_buffer.end());
+            #pragma omp critical (push_transactions)
+            transactions.push_back(line_buffer);
+            
         }
-        #pragma omp taskwait
         ifs.close();
     }
 
 public:
     void run(const std::string input_file, const double support, const int max_threads)
     {
-        k = 2;
+        unsigned k = 2;
         read_data(input_file, max_threads);
         singles_merge(support, max_threads);
         while (!itemsets.empty())
@@ -307,11 +329,14 @@ class SyncApriori : public AprioriBase<Vector>
 
     void singles_merge(const double support, const int max_threads)
     {
-        const unsigned int tx_size = transactions.size(), single_size = single_items.size();
-        #pragma parallel for schedule(dynamic) num_threads(max_threads)
+        const unsigned int cache_regulator = CACHE_SIZE/8;
+        const unsigned int tx_size = transactions.size(), 
+                            single_size = single_items.size();
+        #pragma parallel num_threads(max_threads)
         for (unsigned int i = 0; i < single_size - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(tx_size))) >= support)
+                #pragma omp for schedule(static) nowait 
                 for (unsigned int j = i + 1; j < single_size; j++)
                 {
                     if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(tx_size))) >= support)
@@ -321,18 +346,22 @@ class SyncApriori : public AprioriBase<Vector>
                         itemsets.push_back(j);
                     }
                 }
+            if (i % cache_regulator == 0)
+            {
+                #pragma omp barrier
+            } 
         }
     }
 
     void map(const unsigned int k, const int max_threads)
     {
-        unsigned int itemsets_size = itemsets.size()/k;
+        const unsigned int itemsets_size = itemsets.size()/k;
         occurrencies = std::vector<unsigned int>(itemsets_size, 0);
         
 
         if(TX_BYTE_SIZE>(4*itemsets.size()))
         {
-            unsigned int cache_regulator = CACHE_SIZEE/(TX_BYTE_SIZE/transactions.size());
+            const unsigned int cache_regulator = CACHE_SIZE/(TX_BYTE_SIZE/transactions.size());
             #pragma omp parallel num_threads(max_threads)
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
@@ -377,7 +406,7 @@ class SyncApriori : public AprioriBase<Vector>
         }
         else
         {
-            unsigned int cache_regulator = CACHE_SIZEE/(k*4);
+            const unsigned int cache_regulator = CACHE_SIZE/(k*4);
             #pragma omp parallel num_threads(max_threads)
             for (unsigned int set = 0; set < itemsets_size; set++)
             {
@@ -457,14 +486,11 @@ class SyncApriori : public AprioriBase<Vector>
         // prune(support, k-1, max_threads);
         if (!itemsets.empty())
         {
-            
-            // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
             std::set<std::vector<unsigned int>> temp;
-            unsigned int size = transactions.size();
-            unsigned int itemsets_size = itemsets.size()/(k-1);
-            //for every itemset, try to unite it with another in the itemsets vector
+            const unsigned int size = transactions.size();
+            const unsigned int itemsets_size = itemsets.size()/(k-1);
+            const unsigned int cache_regulator = CACHE_SIZE/(k*4);
 
-            // #pragma omp parallel
             #pragma omp parallel num_threads(max_threads)
             {
                 // #pragma omp for schedule(dynamic)
@@ -513,12 +539,12 @@ class SyncApriori : public AprioriBase<Vector>
                             }
                         }
                     }
-                    // if (i % 1000 == 0)
-                    // {
-                    //     #pragma omp barrier
-                    // }
+                    if (i % cache_regulator == 0)
+                    {
+                        #pragma omp barrier
+                    }
                 }
-
+                #pragma omp barrier
                 #pragma omp single
                 {
                     itemsets.resize(temp.size()*k);

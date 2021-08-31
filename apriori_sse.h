@@ -14,7 +14,7 @@
 #include <bitset>
 
 static unsigned int MASK_SIZE;
-static constexpr size_t CACHE_SIZE = 4194304;
+
 
 struct Compare
 {
@@ -61,6 +61,7 @@ protected:
     std::vector<unsigned int> masks;
     typename ItemsetType::data_type  itemsets;
     std::vector<unsigned int> occurrencies;
+    static constexpr size_t CACHE_SIZE = 1048576;
 
     virtual void singles_merge(const double, const int) = 0;
     virtual void map(const unsigned int, const int) = 0;
@@ -121,53 +122,79 @@ protected:
             exit(0);
         }
         std::string doc_buffer;
+        #pragma omp parallel num_threads(max_threads)
+        #pragma omp single
         while (!getline(ifs, doc_buffer).eof())
+        #pragma omp task firstprivate(doc_buffer)
         {
-            std::istringstream iss(doc_buffer);
-            std::string token;
-            unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
-            initialize_array(buf);
-            while (std::getline(iss, token, ' '))
+            
             {
-
-                if (!isspace(token[0]))
+                std::istringstream iss(doc_buffer);
+                std::string token;
+                std::vector<unsigned> indices;
+                unsigned max = 0;
+                while (std::getline(iss, token, ' '))
                 {
-                    bool clear = true;
-                    for (unsigned int i = 0; i < single_items.size(); i++)
-                    {
-                        if (single_items[i] == token)
-                        {
-                            clear = 0;
-                            occurrencies[i]++;
-                            buf[i / 32] ^= static_cast<unsigned int>(std::exp2(31 - (i % 32)));
-                            // i=single_items.size();
-                            break;
-                        }
-                    }
-                    //new element found
-                    if (clear)
-                    {
-                        single_items.push_back(token);
-                        occurrencies.push_back(1);
-                        unsigned int s_size = single_items.size();
-                        if (single_items.size() > MASK_SIZE)
-                        {
-                            MASK_SIZE += 128;
-                            unsigned int *buf2 = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
 
-                            for (unsigned int i = 0; i < MASK_SIZE / 128 - 1; i++)
-                                _mm_store_si128((__m128i *)(buf2 + (i * 4)), _mm_load_si128((__m128i *)(buf + (i * 4))));
-                            _mm_store_si128((__m128i *)(buf2 + MASK_SIZE / 32 - 4), _mm_setzero_si128());
-                            _mm_free(buf);
-                            buf = buf2;
+                    if (!isspace(token[0]))
+                    {
+                        bool clear = true;
+                        unsigned i, temp_size;
+                        #pragma omp critical (push_single)
+                        temp_size = single_items.size();
+                        for (i = 0; i < temp_size; i++)
+                        {
+                            if (single_items[i] == token)
+                            {
+                                clear = 0;
+                                #pragma omp atomic
+                                occurrencies[i]++;
+                                break;
+                            }
                         }
-
-                        buf[(s_size - 1) / 32] ^= static_cast<unsigned int>(std::exp2(31 - ((s_size - 1) % 32) ));
+                        //new element found
+                        if (clear)
+                        {
+                            #pragma omp critical (push_single)
+                            {
+                                if (temp_size != single_items.size())
+                                {
+                                    for (i = temp_size; i < single_items.size(); i++)
+                                    {
+                                        if (single_items[i] == token)
+                                        {
+                                            clear = 0;
+                                            #pragma omp atomic
+                                            occurrencies[i]++;
+                                            break;
+                                        }
+                                    }                                    
+                                }
+                                if(clear){
+                                    single_items.push_back(token);
+                                    occurrencies.push_back(1); 
+                                }
+                            }
+                        }
+                        indices.push_back(i);
+                        if ( i > max)
+                            max = i;
                     }
                 }
+                unsigned int * buf = (unsigned int * )_mm_malloc(std::ceil((double)max /128.0)*16, 16);
+                for (unsigned int m = 0; m < max / 128; m++)
+                    _mm_store_si128((__m128i *)(buf + (m * 4)), _mm_setzero_si128());                
+                for (auto& i: indices)
+                    buf[i / 32] ^= static_cast<unsigned int>(std::exp2(31 - (i % 32) ));
+                
+                #pragma omp critical (mask_write)
+                {
+                    transactions.push_back(buf);
+                    masks.push_back(max);
+                    if (MASK_SIZE < max)
+                        MASK_SIZE = (max/128)*128;
+                }
             }
-            transactions.push_back(buf);
-            masks.push_back(MASK_SIZE);
         }
         ifs.close();
     } 
@@ -408,10 +435,11 @@ class SyncAprioriSSE : public SSE<VectorSSE>
     void singles_merge(const double support, const int max_threads)
     {
         cache_regulator = CACHE_SIZE / (MASK_SIZE/8); 
-        #pragma omp parallel for schedule(dynamic) num_threads(max_threads)
+        #pragma omp parallel num_threads(max_threads)
         for (unsigned int i = 0; i < single_items.size() - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(transactions.size()))) >= support)
+                #pragma omp for schedule(static) nowait
                 for (unsigned int j = i + 1; j < single_items.size(); j++)
                 {
                     if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(transactions.size()))) >= support)
@@ -426,6 +454,10 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                         }
                     }
                 }
+            if (i % cache_regulator == 0)
+            {
+                #pragma omp barrier
+            }
         }
     }
 
@@ -591,12 +623,12 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                             }
                         }
                     }
-                    // if (i % 1000 == 0)
-                    // {
-                    //     #pragma omp barrier
-                    // }
+                    if (i % cache_regulator == 0)
+                    {
+                        #pragma omp barrier
+                    }
                 }
-                
+                #pragma omp barrier
                 
                 #pragma omp for schedule(static)
                 for (unsigned int i = 0; i < itemsets.size(); i++)
