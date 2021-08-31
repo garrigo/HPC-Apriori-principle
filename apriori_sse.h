@@ -22,7 +22,7 @@ struct Compare
     {
         unsigned int compare_result[8];
         __m128i *p_a = (__m128i *)a, *p_b = (__m128i *)b;
-        for (unsigned int mask = 0; mask < MASK_SIZE / 128; mask++)
+        for (unsigned int mask = 0; mask < MASK_SIZE; mask++)
         {
             __m128i m_a = _mm_load_si128(p_a);
             __m128i m_b = _mm_load_si128(p_b);
@@ -92,7 +92,7 @@ protected:
         {        
             for (auto& set : itemsets)
             {
-                for (unsigned int i = 0; i < MASK_SIZE / 32; i++)
+                for (unsigned int i = 0; i < MASK_SIZE*4; i++)
                 {
                     std::bitset<32> x(set[i]);
                     ofs << x << " ";
@@ -107,7 +107,7 @@ protected:
 
     inline void initialize_array(unsigned int *buf)
     {
-        for (unsigned int m = 0; m < MASK_SIZE / 128; m++)
+        for (unsigned int m = 0; m < MASK_SIZE; m++)
             _mm_store_si128((__m128i *)(buf + (m * 4)), _mm_setzero_si128());
     }
 
@@ -181,8 +181,9 @@ protected:
                             max = i;
                     }
                 }
-                unsigned int * buf = (unsigned int * )_mm_malloc(std::ceil((double)max /128.0)*16, 16);
-                for (unsigned int m = 0; m < max / 128; m++)
+                unsigned mask = max/128+1;
+                unsigned int * buf = (unsigned int * )_mm_malloc(mask*16, 16);
+                for (unsigned int m = 0; m <= max / 128; m++)
                     _mm_store_si128((__m128i *)(buf + (m * 4)), _mm_setzero_si128());                
                 for (auto& i: indices)
                     buf[i / 32] ^= static_cast<unsigned int>(std::exp2(31 - (i % 32) ));
@@ -190,9 +191,9 @@ protected:
                 #pragma omp critical (mask_write)
                 {
                     transactions.push_back(buf);
-                    masks.push_back(max);
+                    masks.push_back(mask);
                     if (MASK_SIZE < max)
-                        MASK_SIZE = (max/128)*128;
+                        MASK_SIZE = mask;
                 }
             }
         }
@@ -204,7 +205,7 @@ public:
     {   
         
         unsigned int k = 2;
-        MASK_SIZE = 128;
+        MASK_SIZE = 1;
         read_data(input_file, max_threads);
         singles_merge(support, max_threads); 
         while (!itemsets.empty())
@@ -234,7 +235,7 @@ class AprioriSSE : public SSE<SetSSE>
                 {
                     if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(transactions.size()))) >= support)
                     {
-                        unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
+                        unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE * 16, 16);
                         initialize_array(buf);
                         buf[i / 32] ^= static_cast<unsigned int>(std::exp2(31 - (i % 32) ));
                         buf[j / 32] ^= static_cast<unsigned int>(std::exp2(31 - (j % 32) ));
@@ -272,9 +273,9 @@ class AprioriSSE : public SSE<SetSSE>
                 for (unsigned int tx = 0; tx < transactions.size(); tx++)
                 {
                     bool found = true;
-                    unsigned int masks_number = (masks[tx] / 128);
+                    unsigned int masks_number = masks[tx];
                     __m128i *p_set = (__m128i *)(set), *p_tx = (__m128i *)transactions[tx];
-                    for (unsigned int i = 0; i < MASK_SIZE / 128; i++)
+                    for (unsigned int i = 0; i < MASK_SIZE; i++)
                     {
 
                         __m128i set_128 = _mm_load_si128(p_set);
@@ -299,12 +300,12 @@ class AprioriSSE : public SSE<SetSSE>
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
                 unsigned int occ = 0;
-                unsigned int masks_number = (masks[tx] / 128);
+                unsigned int masks_number = masks[tx];
                 for (const auto set : itemsets)
                 {
                     bool found = true;
                     __m128i *p_set = (__m128i *)(set), *p_tx = (__m128i *)transactions[tx];
-                    for (unsigned int i = 0; i < MASK_SIZE / 128; i++)
+                    for (unsigned int i = 0; i < MASK_SIZE; i++)
                     {
 
                         __m128i set_128 = _mm_load_si128(p_set);
@@ -368,12 +369,12 @@ class AprioriSSE : public SSE<SetSSE>
                         itemset_y++;
                         while (itemset_y != itemsets.end())
                         {
-                            unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
+                            unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE * 16, 16);
                             unsigned int pow_count = 0;
 
                             bool inserted = false, next = true;
                             __m128i *p_buf = (__m128i *)buf, *p_seti = (__m128i *)(*itemset_x), *p_setj = (__m128i *)(*itemset_y);
-                            for (unsigned int mask = 0; next && pow_count <= 1 && mask < MASK_SIZE / 128; mask++)
+                            for (unsigned int mask = 0; next && pow_count <= 1 && mask < MASK_SIZE; mask++)
                             {
                                 unsigned int check_result[8];
                                 __m128i m_seti = _mm_load_si128(p_seti);
@@ -434,7 +435,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
 
     void singles_merge(const double support, const int max_threads)
     {
-        cache_regulator = CACHE_SIZE / (MASK_SIZE/8); 
+        cache_regulator = CACHE_SIZE / (MASK_SIZE * 16); 
         #pragma omp parallel num_threads(max_threads)
         for (unsigned int i = 0; i < single_items.size() - 1; i++)
         {
@@ -444,7 +445,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                 {
                     if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(transactions.size()))) >= support)
                     {
-                        unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
+                        unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE * 16, 16);
                         initialize_array(buf);
                         buf[i / 32] ^= static_cast<unsigned int>(std::exp2(31 - (i % 32) ));
                         buf[j / 32] ^= static_cast<unsigned int>(std::exp2(31 - (j % 32) ));
@@ -474,10 +475,10 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                 #pragma omp for schedule(static) nowait
                 for (unsigned int tx = 0; tx < transactions.size(); tx++)
                 {
-                    unsigned int masks_number = masks[tx] / 128;
+                    unsigned int masks_number = masks[tx];
                     bool found = true;
                     __m128i *p_set = (__m128i *)itemsets[set], *p_tx = (__m128i *)transactions[tx];
-                    for (unsigned int i = 0; i < MASK_SIZE / 128; i++)
+                    for (unsigned int i = 0; i < MASK_SIZE; i++)
                     {
 
                         __m128i set_128 = _mm_load_si128(p_set);
@@ -503,14 +504,14 @@ class SyncAprioriSSE : public SSE<VectorSSE>
             #pragma omp parallel num_threads(max_threads)
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
-                unsigned int masks_number = masks[tx] / 128;
+                unsigned int masks_number = masks[tx];
                 //for every transaction
                 #pragma omp for schedule(static) nowait
                 for (unsigned int set = 0; set < itemsets.size(); set++)
                 {
                     bool found = true;
                     __m128i *p_set = (__m128i *)itemsets[set], *p_tx = (__m128i *)transactions[tx];
-                    for (unsigned int i = 0; i < MASK_SIZE / 128; i++)
+                    for (unsigned int i = 0; i < MASK_SIZE; i++)
                     {
 
                         __m128i set_128 = _mm_load_si128(p_set);
@@ -582,12 +583,12 @@ class SyncAprioriSSE : public SSE<VectorSSE>
 
                             if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {
-                                unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE / 8, 16);
+                                unsigned int *buf = (unsigned int *)_mm_malloc(MASK_SIZE * 16, 16);
                                 unsigned int pow_count = 0;
 
                                 bool inserted = false, next = true;
                                 __m128i *p_buf = (__m128i *)buf, *p_seti = (__m128i *)itemsets[i], *p_setj = (__m128i *)itemsets[j];
-                                for (unsigned int mask = 0; next && pow_count <= 1 && mask < MASK_SIZE / 128; mask++)
+                                for (unsigned int mask = 0; next && pow_count <= 1 && mask < MASK_SIZE; mask++)
                                 {
                                     unsigned int check_result[8];
                                     __m128i m_seti = _mm_load_si128(p_seti);
