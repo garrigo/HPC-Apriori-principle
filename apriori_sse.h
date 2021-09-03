@@ -257,70 +257,35 @@ class AprioriSSE : public SSE<SetSSE>
 
     void map(const unsigned int k, const int max_threads)
     {
-        
-        if(transactions.size() < itemsets.size())
+        unsigned int occ = 0;
+        occurrencies.resize(itemsets.size());
+        //for every itemset
+        #pragma omp parallel num_threads(max_threads)
+        #pragma omp single
+        for (const auto set : itemsets)
         {
-            unsigned int occ = 0;
-            occurrencies.resize(itemsets.size());
-            //for every itemset
-            #pragma omp parallel num_threads(max_threads)
-            #pragma omp single
-            for (const auto set : itemsets)
-            {
-                occurrencies[occ] = 0;
-                //for every transaction
-                #pragma omp task firstprivate(set, occ)
-                for (unsigned int tx = 0; tx < transactions.size(); tx++)
-                {
-                    bool found = true;
-                    unsigned int masks_number = masks[tx];
-                    __m128i *p_set = (__m128i *)(set), *p_tx = (__m128i *)transactions[tx];
-                    for (unsigned int i = 0; i < MASK_SIZE; i++)
-                    {
-
-                        __m128i set_128 = _mm_load_si128(p_set);
-                        __m128i xor_result = (masks_number > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : set_128;
-                        if (!(found = _mm_testz_si128(xor_result, xor_result)))
-                            break;
-                        ++p_set;
-                        ++p_tx;
-                    }
-                    if (found)
-                        occurrencies[occ]++;
-                }
-                ++occ;
-            }
-            #pragma omp taskwait
-        }
-        else
-        {
-            occurrencies = std::vector<unsigned int>(itemsets.size(), 0);
-
-            #pragma omp parallel for schedule(static) num_threads(max_threads)
+            occurrencies[occ] = 0;
+            //for every transaction
+            #pragma omp task firstprivate(set, occ)
             for (unsigned int tx = 0; tx < transactions.size(); tx++)
             {
-                unsigned int occ = 0;
+                bool found = true;
                 unsigned int masks_number = masks[tx];
-                for (const auto set : itemsets)
+                __m128i *p_set = (__m128i *)(set), *p_tx = (__m128i *)transactions[tx];
+                for (unsigned int i = 0; i < MASK_SIZE; i++)
                 {
-                    bool found = true;
-                    __m128i *p_set = (__m128i *)(set), *p_tx = (__m128i *)transactions[tx];
-                    for (unsigned int i = 0; i < MASK_SIZE; i++)
-                    {
 
-                        __m128i set_128 = _mm_load_si128(p_set);
-                        __m128i xor_result = (masks_number > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : set_128;
-                        if (!(found = _mm_testz_si128(xor_result, xor_result)))
-                            break;
-                        ++p_set;
-                        ++p_tx;
-                    }
-                    if (found)
-                        #pragma omp atomic
-                        occurrencies[occ]++;
-                    ++occ;
+                    __m128i set_128 = _mm_load_si128(p_set);
+                    __m128i xor_result = (masks_number > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(p_tx)), set_128) : set_128;
+                    if (!(found = _mm_testz_si128(xor_result, xor_result)))
+                        break;
+                    ++p_set;
+                    ++p_tx;
                 }
+                if (found)
+                    occurrencies[occ]++;
             }
+            ++occ;
         }
     }
 
@@ -420,7 +385,6 @@ class AprioriSSE : public SSE<SetSSE>
                         #pragma omp task firstprivate(set)
                         {_mm_free(set);}
                 }
-                #pragma omp taskwait
             }
         }
 
