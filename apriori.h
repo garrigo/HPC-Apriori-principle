@@ -10,7 +10,7 @@
 #include <omp.h>
 
 
-
+//Hash operation to allocate a vector in a std::unordered_set
 struct VectorHash
 {
     inline unsigned operator()(const std::vector<unsigned> &v) const
@@ -27,25 +27,36 @@ struct VectorHash
 
 using VectorSet = std::unordered_set<std::vector<unsigned>, VectorHash>;
 
+//Data type of the itemset collection for the Sync version
 struct Vector {
     typedef std::vector<unsigned>data_type;
 };
 
+//Data type of the itemset collection for the normal version
 struct Set {
     typedef std::unordered_set<std::vector<unsigned>, VectorHash> data_type;
 };
 
 
+//Abstract class that includes all members that are shared by all No-SSE versions
 template<class ItemsetType>
 class AprioriBase
 {
 protected:
+    //Vector of transactions taken from the file
     std::vector<std::vector<unsigned>> transactions;
+    //Collection of itemsets generated at every step
     typename ItemsetType::data_type itemsets;
+    //Vector of unique items taken by the file
     std::vector<std::string> single_items;
+    //Vector representing the occurrencies of every itemset in the whole transaction list
     std::vector<unsigned> occurrencies;
+
+    //Counter for the average number of bytes of a transaction line
     size_t TX_BYTE_SIZE = 0;
-    static constexpr size_t CACHE_SIZE = 1048576;
+    
+
+    //Methods to be implemented by every child class
 
     virtual void singles_merge(const double, const int) = 0;
     virtual void map(const unsigned, const int) = 0;
@@ -70,6 +81,7 @@ protected:
 
     }
 
+    //Output current itemsets to file
     void store_itemsets(const std::string& filename)
     {
         std::ofstream ofs;
@@ -92,6 +104,7 @@ protected:
         else std::cout << "Unable to open sse_output.dat file\n";
     }
 
+    //Read the input file and populate single_items, transactions and occurrencies
     void read_data(const std::string input_file, const int max_threads)
     {
         std::ifstream ifs;
@@ -106,6 +119,7 @@ protected:
         #pragma omp parallel num_threads(max_threads)
         #pragma omp single
         while (!getline(ifs, doc_buffer).eof())
+        //Create a task for every line of the input file
         #pragma omp task firstprivate(doc_buffer)
         {
             std::vector<unsigned> line_buffer;
@@ -120,47 +134,53 @@ protected:
                     unsigned i, temp_size;
                     #pragma omp critical (push_single)
                     temp_size = single_items.size();
-                    // #pragma omp critical (push_single)
+                    //Search for the new token in the vector of single items already found (no-critical section pass)
+                    for (i = 0; i < temp_size; i++)
                     {
-                        for (i = 0; i < temp_size; i++)
+                        if (single_items[i] == token)
                         {
-                            if (single_items[i] == token)
-                            {
-                                clear = 0;
-                                #pragma omp atomic
-                                occurrencies[i]++;
-                                break;
-                            }
-                        }
-                        if (clear)
-                        {
-                            #pragma omp critical (push_single)
-                            {
-                                if (temp_size != single_items.size())
-                                {
-                                    for (i = temp_size; i < single_items.size(); i++)
-                                    {
-                                        if (single_items[i] == token)
-                                        {
-                                            clear = 0;
-                                            #pragma omp atomic
-                                            occurrencies[i]++;
-                                            break;
-                                        }
-                                    }                                    
-                                }
-                                if(clear){
-                                    single_items.push_back(token);
-                                    occurrencies.push_back(1); 
-                                }                               
-                            }
+                            clear = 0;
+                            //If token is found in the vector, increment atomically the corresponding entry of occurrencies
+                            #pragma omp atomic
+                            occurrencies[i]++;
+                            break;
                         }
                     }
+                    //Token wasn't in the vector during the no-critical section search
+                    if (clear)
+                    {
+                        /*Try again to find the token in another pass,
+                        but this time in a critical section and by starting from the last element compared in the first search*/                        
+                        #pragma omp critical (push_single)
+                        {
+                            if (temp_size != single_items.size())
+                            {
+                                for (i = temp_size; i < single_items.size(); i++)
+                                {
+                                    if (single_items[i] == token)
+                                    {
+                                        clear = 0;
+                                        //If token is found in the vector, increment atomically the corresponding entry of occurrencies
+                                        #pragma omp atomic
+                                        occurrencies[i]++;
+                                        break;
+                                    }
+                                }                                    
+                            }
+                            //If the token wasn't found again, create a new entry both in the single items vector and in the occurrencies' one
+                            if(clear){
+                                single_items.push_back(token);
+                                occurrencies.push_back(1); 
+                            }                               
+                        }
+                    }
+                    //Save the position of the token (in the single_items vector) in the new transaction line
                     line_buffer.push_back(i);
                 }
             }
             #pragma omp atomic
             TX_BYTE_SIZE += line_buffer.size()*4;
+            //Sort the new transaction line and push it in the vector of transactions
             std::sort(line_buffer.begin(), line_buffer.end());
             #pragma omp critical (push_transactions)
             transactions.push_back(line_buffer);
@@ -175,6 +195,7 @@ public:
         unsigned k = 2;
         read_data(input_file, max_threads);
         singles_merge(support, max_threads);
+        //While itemsets within the given threshold are being found
         while (!itemsets.empty())
         {
             map(k, max_threads);
@@ -187,6 +208,7 @@ public:
 
 class Apriori : public AprioriBase <Set>
 {
+    //Create itemsets by merging couples of single items (for the k=2 pass)
     void singles_merge(const double support, const int max_threads)
     {
         #pragma omp parallel for schedule(dynamic, 1) num_threads(max_threads)
@@ -206,40 +228,42 @@ class Apriori : public AprioriBase <Set>
         // store_itemsets("nosse_set_output.dat");
     }
 
+    //For every itemset, search it in every transaction and if it's present increment the corresponding occurrencies' entry
     void map(const unsigned k, const int max_threads)
     {
         occurrencies.resize(itemsets.size());
-        //for every itemset
         unsigned occ = 0;
         #pragma omp parallel num_threads(max_threads)
         #pragma omp single
+        //For every itemset create a task
         for (const auto& set : itemsets)
         {        
             #pragma omp task firstprivate(set, occ)
             {
                 occurrencies[occ] = 0;
-                //for every transaction
+                //For every transaction
                 for (const auto &tx : transactions)
                 {
                     if (tx.size() >= k)
                     {
-                        unsigned found = 0, cont = 1, tx_cursor = 0;
+                        bool cont = true;
+                        unsigned found = 0, tx_cursor = 0;
                         auto item = set.begin();
-                        //for every item in itemset
+                        //For every item in itemset
                         while (cont && item != set.end())
                         {
-                            cont = 0;
-                            //for every item in transaction
+                            cont = false;
+                            //For every item in transaction
                             while (!cont && tx_cursor < tx.size())
                             {
+                                /*If the item of the itemset is less than the item of the transaction, it means that the item is not present in that transaction line,
+                                since both the itemset and the transaction are sorted in ascending order. In this case we can skip to the next transaction.*/
                                 if ((*item) < (tx[tx_cursor]))
-                                {
-                                    tx_cursor = tx.size();
-                                }
+                                    break;
                                 else if ((*item) == (tx[tx_cursor]))
                                 {
                                     ++found;
-                                    cont = 1;
+                                    cont = true;
                                 }
 
                                 ++tx_cursor;
@@ -258,6 +282,7 @@ class Apriori : public AprioriBase <Set>
         #pragma omp taskwait
     }
 
+    //Prune all itemsets that do not reach the threshold
     void prune(const double support, const int max_threads)
     {   
         unsigned occ = 0;
@@ -276,19 +301,21 @@ class Apriori : public AprioriBase <Set>
         // store_itemsets("nosse_set_output.dat");
     }
 
+    //Merge all k-1 pass itemsets to create a new set of itemsets having k single items
     void merge(const unsigned k, const double support, const int max_threads)
     {
         prune(support, max_threads);
         if (!itemsets.empty())
         {
             VectorSet temp;
-            //for every itemset, try to unite it with another in the itemsets vector
+            
             auto itemset_x = itemsets.begin();
             #pragma omp parallel num_threads(max_threads)
             #pragma omp single
+            //A single thread creates a task for every itemset
             while (itemset_x != itemsets.end())
             {
-                    
+                //The task tries to unite the given itemset with all the itemsets following it
                 #pragma omp task firstprivate(itemset_x), shared(temp)
                 {
                     auto itemset_y = itemset_x;
@@ -297,6 +324,10 @@ class Apriori : public AprioriBase <Set>
                     {
                         std::vector<unsigned> merged(k);
                         unsigned m = 0, v1 = 0, v2 = 0, distance = 0;
+                        /*Since items in itemsets are sorted, compare one by one (starting from the beginning) the elements of the two itemsets.
+                        Two itemsets of size (k-1) merge into one of size k only if they differ just by one element. By comparing one by one,
+                        we can stop the merging when the "distance" between the two vectors reaches value 3, which means that there are too many
+                        different items to generate a k-vector.*/
                         while (distance < 3 && m < k)
                         {
                             if (v2 == k - 1 || (v1 != k - 1 && (*itemset_x)[v1] < (*itemset_y)[v2]))
@@ -319,6 +350,7 @@ class Apriori : public AprioriBase <Set>
                             }
                             ++m;
                         }
+                        //If the merged set has size k try to put it in the new set of itemsets
                         if (distance == 2)
                             #pragma omp critical (merge_write)
                             {temp.insert(merged);}
@@ -338,7 +370,10 @@ class Apriori : public AprioriBase <Set>
 
 class SyncApriori : public AprioriBase<Vector>
 {
+    //Custom cache-aware value to compute a cache_regulator
+    static constexpr size_t CACHE_SIZE = 1048576;
 
+    //Output current itemsets to file
     void store_itemsets(const std::string& filename, unsigned k)
     {
         std::ofstream ofs;
@@ -361,6 +396,7 @@ class SyncApriori : public AprioriBase<Vector>
         else std::cout << "Unable to open sse_output.dat file\n";
     }
 
+    //Create itemsets by merging couples of single items (for the k=2 pass)
     void singles_merge(const double support, const int max_threads)
     {
         const unsigned cache_regulator = CACHE_SIZE/8;
@@ -391,38 +427,41 @@ class SyncApriori : public AprioriBase<Vector>
 
     }
 
+    //For every itemset, search it in every transaction and if it's present increment the corresponding occurrencies' entry
     void map(const unsigned k, const int max_threads)
     {
         const unsigned itemsets_size = itemsets.size()/k;
         occurrencies = std::vector<unsigned>(itemsets_size, 0);
-        
 
         if(TX_BYTE_SIZE>(4*itemsets.size()))
         {
             const unsigned cache_regulator = CACHE_SIZE/(TX_BYTE_SIZE/transactions.size());
             #pragma omp parallel num_threads(max_threads)
+            //For every transaction
             for (unsigned tx = 0; tx < transactions.size(); tx++)
             {
-                //for every transaction
+                //For every itemset
                 #pragma omp for schedule(static) nowait
                 for (unsigned set = 0; set < itemsets_size; set++)
                 {
-                    unsigned found = 0, cont = 1, tx_cursor = 0, item = 0;
-                    //for every item in itemset
+                    bool cont = true;
+                    unsigned found = 0, tx_cursor = 0, item = 0;
+                    //For every item in itemset
                     while (cont && item < k)
                     {
-                        cont = 0;
-                        //for every item in transaction
+                        cont = false;
+                        //For every item in transaction
                         while (!cont && tx_cursor < transactions[tx].size())
                         {
+                            
+                            /*If the item of the itemset is less than the item of the transaction, it means that the item is not present in that transaction line,
+                            since both the itemset and the transaction are sorted in ascending order. In this case we can skip to the next transaction.*/
                             if (itemsets[set*k+item] < (transactions[tx][tx_cursor]))
-                            {
                                 break;
-                            }
                             else if (itemsets[set*k+item] == (transactions[tx][tx_cursor]))
                             {
                                 ++found;
-                                cont = 1;
+                                cont = true;
                             }
 
                             ++tx_cursor;
@@ -452,22 +491,23 @@ class SyncApriori : public AprioriBase<Vector>
                 #pragma omp for schedule(static) nowait
                 for (unsigned tx = 0; tx < transactions.size(); tx++)
                 {
-                    unsigned found = 0, cont = 1, tx_cursor = 0, item = 0;
+                    bool cont = true;
+                    unsigned found = 0, tx_cursor = 0, item = 0;
                     //for every item in itemset
                     while (cont && item < k)
                     {
-                        cont = 0;
+                        cont = false;
                         //for every item in transaction
                         while (!cont && tx_cursor < transactions[tx].size())
                         {
+                            /*If the item of the itemset is less than the item of the transaction, it means that the item is not present in that transaction line,
+                            since both the itemset and the transaction are sorted in ascending order. In this case we can skip to the next transaction.*/
                             if (itemsets[set*k+item] < (transactions[tx][tx_cursor]))
-                            {
                                 break;
-                            }
                             else if (itemsets[set*k+item] == (transactions[tx][tx_cursor]))
                             {
                                 ++found;
-                                cont = 1;
+                                cont = true;
                             }
 
                             ++tx_cursor;
@@ -488,14 +528,14 @@ class SyncApriori : public AprioriBase<Vector>
         }
     }
 
+    //Prune all itemsets that do not reach the threshold
     void prune(const double support, const unsigned k, const int max_threads)
     {   
         unsigned size = transactions.size();
-        // unsigned tail = itemsets.size() - 1;
         std::vector<unsigned> temp;
         #pragma omp parallel num_threads(max_threads)
         {
-            #pragma omp for schedule(static) 
+            #pragma omp for schedule(dynamic, 1) 
             for(int i = 0; i<itemsets.size(); i+=k)
             {
                 if ((static_cast<double>(occurrencies[i/k]) / (static_cast<double>(size))) >= support)
@@ -511,7 +551,7 @@ class SyncApriori : public AprioriBase<Vector>
         // store_itemsets("sync_out.dat", k);
     }
 
-
+    //Merge all k-1 pass itemsets to create a new set of itemsets having k single items
     void merge(const unsigned k, const  double support, const int max_threads)
     {
         prune(support, k-1, max_threads);
@@ -539,6 +579,10 @@ class SyncApriori : public AprioriBase<Vector>
                                 
                                 std::vector<unsigned> merged(k);
                                 unsigned m = 0, v1 = 0, v2 = 0, distance = 0, j_off = j*(k-1);
+                                /*Since items in itemsets are sorted, compare one by one (starting from the beginning) the elements of the two itemsets.
+                                Two itemsets of size (k-1) merge into one of size k only if they differ just by one element. By comparing one by one,
+                                we can stop the merging when the "distance" between the two vectors reaches value 3, which means that there are too many
+                                different items to generate a k-vector.*/
                                 while (distance < 3 && m < k)
                                 {
                                     if (v2 == k - 1 || (v1 != k - 1 && itemsets[i_off+v1] < itemsets[j_off+v2]))
@@ -561,6 +605,7 @@ class SyncApriori : public AprioriBase<Vector>
                                     }
                                     ++m;
                                 }
+                                //If the merged set has size k try to put it in the new set of itemsets
                                 if (distance == 2)
                                 {
                                     #pragma omp critical(merge_write)
@@ -580,6 +625,8 @@ class SyncApriori : public AprioriBase<Vector>
                 {
                     itemsets.resize(temp.size()*k);
                     unsigned i = 0;
+                    //Fill the itemsets vector with the new itemsets using the temporary set of the merge phase
+                    //For every set create a task that fills the unidimensional vector
                     for (auto& set : temp)
                     {
                         #pragma omp task firstprivate(set, i), shared(itemsets)

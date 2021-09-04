@@ -62,7 +62,7 @@ struct SetSSE {
     typedef std::set<unsigned *, Compare> data_type;
 };
 
-//Abstract class that includes all members that are shared by all versions
+//Abstract class that includes all members that are shared by all SSE versions
 template<class ItemsetType>
 class SSE
 {
@@ -172,17 +172,17 @@ protected:
                             if (single_items[i] == token)
                             {
                                 clear = 0;
-                                //If token is found in the vector, increment atomically the already existing entry of occurrencies
+                                //If token is found in the vector, increment atomically the corresponding entry of occurrencies
                                 #pragma omp atomic
                                 occurrencies[i]++;
                                 break;
                             }
                         }
-                        //Token wasn't in the vector during the no-critical section pass
+                        //Token wasn't in the vector during the no-critical section search
                         if (clear)
                         {
                             /*Try again to find the token in another pass,
-                            but this time in a critical section and by starting from the last element compared by the thread*/
+                            but this time in a critical section and by starting from the last element compared in the first search*/
                             #pragma omp critical (push_single)
                             {
                                 if (temp_size != single_items.size())
@@ -192,7 +192,7 @@ protected:
                                         if (single_items[i] == token)
                                         {
                                             clear = 0;
-                                            //If token is found in the vector, increment atomically the already existing entry of occurrencies
+                                            //If token is found in the vector, increment atomically the corresponding entry of occurrencies
                                             #pragma omp atomic
                                             occurrencies[i]++;
                                             break;
@@ -206,6 +206,7 @@ protected:
                                 }
                             }
                         }
+                        //Save the position of the token (in the single_items vector) in the temporary vector of indices
                         indices.push_back(i);
                         if ( i > max)
                             max = i;
@@ -240,14 +241,16 @@ public:
         unsigned k = 2;
         MASK_SIZE = 1;
         read_data(input_file, max_threads);
-        singles_merge(support, max_threads); 
+        singles_merge(support, max_threads);
+        //While itemsets within the given threshold are being found
         while (!itemsets.empty())
         {
             map(support, k, max_threads);
             ++k;
             merge(k, support, max_threads);
         }
-        #pragma omp parallel for num_threads(max_threads)
+        //De-allocate from memory the arrays of transactions
+        #pragma omp parallel for schedule(static) num_threads(max_threads)
         for (unsigned i = 0; i < transactions.size(); i++)
             _mm_free(transactions[i]);
     }
@@ -257,10 +260,10 @@ public:
 
 class AprioriSSE : public SSE<SetSSE>
 {
-    //Create itemsets by merging couples of single items (k=2 pass)
+    //Create itemsets by merging couples of single items (for the k=2 pass)
     void singles_merge(const double support, const int max_threads)
     {
-        #pragma omp parallel for num_threads(max_threads) schedule(dynamic)
+        #pragma omp parallel for num_threads(max_threads) schedule(dynamic, 1)
         for (unsigned i = 0; i < single_items.size() - 1; i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(transactions.size()))) >= support)
@@ -289,7 +292,7 @@ class AprioriSSE : public SSE<SetSSE>
     {
         unsigned occ = 0;
         occurrencies.resize(itemsets.size());
-        //For every itemset
+        //For every itemset create a task
         #pragma omp parallel num_threads(max_threads)
         #pragma omp single
         for (const auto set : itemsets)
@@ -303,8 +306,8 @@ class AprioriSSE : public SSE<SetSSE>
                     bool found = true;
                     unsigned masks_number = masks[tx];
                     __m128i* tx_128 = (__m128i*)transactions[tx];
-                    //Check if the 1 bits in the mask of the itemset are all included in the mask of the transaction
-                    //If the number of masks of the transaction is smaller than the itemset's one, compare with a 0 mask
+                    /*Check if the 1 bits in the [i] mask of the itemset are all included in the [i] mask of the transaction
+                    If the number of masks of the transaction is smaller than the itemset's one, test if the itemset's mask is 0*/
                     for (unsigned i = 0; i < MASK_SIZE; i++)
                     {
                         __m128i set_128 = _mm_load_si128((__m128i *)(set)+i);
@@ -342,31 +345,39 @@ class AprioriSSE : public SSE<SetSSE>
 
     }
 
-    //Merge all k-1 pass itemsets to create a new set of itemsets having k single items (as indices)
+    //Merge all k-1 pass itemsets to create a new set of itemsets having k single items
     void merge(const unsigned k, const double support, const int max_threads)
     {
         prune(support, max_threads);
         if (!itemsets.empty())
         {
-            // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
             std::set<unsigned *, Compare> temp;
             auto itemset_x = itemsets.begin();
-            //for every itemset, try to unite it with another in the itemsets vector
+            
             #pragma omp parallel num_threads(max_threads)
             {
+                //A single thread creates a task for every itemset
                 #pragma omp single
                 while (itemset_x != itemsets.end())
                 {
+                    //The task tries to unite the given itemset with all the itemsets following it
                     #pragma omp task firstprivate(itemset_x), shared(temp)
                     {
                         auto itemset_y = itemset_x;
                         itemset_y++;
                         while (itemset_y != itemsets.end())
                         {
+                            //New array to contain the new itemset
                             unsigned *buf = (unsigned *)_mm_malloc(MASK_SIZE * 16, 16);
                             unsigned pow_count = 0;
-                            bool inserted = false, next = true;
-                            for (unsigned mask = 0; next && pow_count <= 1 && mask < MASK_SIZE; mask++)
+                            bool inserted = false;
+                            /*For every mask of the two itemsets compute the or (union) and to check if the new itemset has exactly k 1 bits:
+                            1) Compute the xor between one original itemset and the or result and store it in the first half of the check_result array
+                            2) Subtract 1 to every chunk of 32 bits of the xor result.
+                            3) Compute the and operation between the xor result and the sub result and store it in the second half of the check_result array
+                            This computation checks if the 128 bit mask resulting from the xor gives a number that is a power of 2 (only 1 bit set),
+                            which means that in order for the new itemset to have k 1 bits, there must be just one bit set in all masks of the xor result. */
+                            for (unsigned mask = 0; pow_count <= 1 && mask < MASK_SIZE; mask++)
                             {
                                 unsigned check_result[8];
                                 __m128i m_seti = _mm_load_si128(((__m128i*)(*itemset_x))+mask);
@@ -382,12 +393,12 @@ class AprioriSSE : public SSE<SetSSE>
                                         else
                                         {
                                             pow_count = 2;
-                                            next = false;
+                                            break;
                                         }
                                 }
                                 _mm_store_si128(((__m128i*)buf)+mask, or_result);
                             }
-
+                            //If the xor masks produce just 1 bit, the itemset have k 1 bits and can be inserted
                             if (pow_count == 1)
                             {
                                 #pragma omp critical(merge_write)
@@ -402,6 +413,7 @@ class AprioriSSE : public SSE<SetSSE>
                     ++itemset_x;
                 }
                 #pragma omp taskwait
+                //Create a task for every old itemset to free them
                 #pragma omp single
                 {
                     itemsets.swap(temp);
@@ -419,13 +431,16 @@ class AprioriSSE : public SSE<SetSSE>
 
 class SyncAprioriSSE : public SSE<VectorSSE>
 {
-    //custom value for the computation of cache regulator (cache aware model)
+    //Custom value for the computation of cache regulator (cache aware model)
     static constexpr size_t CACHE_SIZE = 1048576;
     unsigned cache_regulator;
 
+    //Create itemsets by merging couples of single items (for the k=2 pass)
     void singles_merge(const double support, const int max_threads)
     {
+        //Number of lines to synchronize
         cache_regulator = CACHE_SIZE / (MASK_SIZE * 16); 
+        
         #pragma omp parallel num_threads(max_threads)
         #pragma omp for schedule(dynamic, 1) 
         for (unsigned i = 0; i < single_items.size() - 1; i++)
@@ -446,6 +461,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                         }
                     }
                 }
+            //Every [cache_regulator] items, synchronize threads making the fastest ones wait 
             // if (i % cache_regulator == 0)
             // {
             //     #pragma omp barrier
@@ -455,21 +471,24 @@ class SyncAprioriSSE : public SSE<VectorSSE>
         // store_itemsets("sse_output.dat");
     }
 
+    //For every itemset, search it in every transaction and if it's present increment the corresponding occurrencies' entry
     void map(const double support, const unsigned k, const int max_threads)
     {
         occurrencies = std::vector<unsigned>(itemsets.size(), 0);
         if (transactions.size() < itemsets.size())
         {
-            //for every itemset
+            //For every itemset
             #pragma omp parallel num_threads(max_threads)
             for (unsigned set = 0; set < itemsets.size(); set++)
             {
-                //for every transaction
+                //For every transaction
                 #pragma omp for schedule(static) nowait
                 for (unsigned tx = 0; tx < transactions.size(); tx++)
                 {
                     unsigned masks_number = masks[tx];
                     bool found = true;
+                    /*Check if the 1 bits in the [i] mask of the itemset are all included in the [i] mask of the transaction
+                    If the number of masks of the transaction is smaller than the itemset's one, test if the itemset's mask is 0*/                    
                     for (unsigned i = 0; i < MASK_SIZE; i++)
                     {
                         __m128i set_128 = _mm_load_si128(((__m128i *)itemsets[set])+i);
@@ -481,6 +500,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                         #pragma omp atomic
                         occurrencies[set]++;
                 }
+                //Synchronize threads every[cache_regulator] line
                 if(set % cache_regulator == 0)
                 {
                     #pragma omp barrier
@@ -489,18 +509,20 @@ class SyncAprioriSSE : public SSE<VectorSSE>
         }
         else
         {
-            //for every itemset
+            //For every transaction
             #pragma omp parallel num_threads(max_threads)
             for (unsigned tx = 0; tx < transactions.size(); tx++)
             {
                 unsigned masks_number = masks[tx];
-                //for every transaction
+                //For every itemset
                 #pragma omp for schedule(static) nowait
                 for (unsigned set = 0; set < itemsets.size(); set++)
                 {
                     bool found = true;
                     for (unsigned i = 0; i < MASK_SIZE; i++)
                     {
+                    /*Check if the 1 bits in the [i] mask of the itemset are all included in the [i] mask of the transaction
+                    If the number of masks of the transaction is smaller than the itemset's one, test if the itemset's mask is 0*/                    
                         __m128i set_128 = _mm_load_si128(((__m128i *)itemsets[set])+i);
                         __m128i xor_result = (masks_number > i) ? _mm_xor_si128(_mm_and_si128(set_128, _mm_load_si128(((__m128i *)transactions[tx])+i)), set_128) : set_128;
                         if (!(found = _mm_testz_si128(xor_result, xor_result)))
@@ -510,6 +532,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                         #pragma omp atomic
                         occurrencies[set]++;
                 }
+                //Synchronize threads every[cache_regulator] line
                 if (tx % cache_regulator == 0)
                 {
                     #pragma omp barrier
@@ -518,12 +541,13 @@ class SyncAprioriSSE : public SSE<VectorSSE>
         }
     }
 
+    //Prune all itemsets that do not reach the threshold
     void prune(const double support, const int max_threads )
     {   
         unsigned size = transactions.size();
-        // unsigned tail = itemsets.size() - 1;
+        //Populate a new vector with the itemsets
         std::vector<unsigned *> temp;
-        #pragma omp parallel for schedule(static) num_threads(max_threads)
+        #pragma omp parallel for schedule(dynamic, 1) num_threads(max_threads)
         for(int i = 0; i<itemsets.size(); i++)
         {
             if ((static_cast<double>(occurrencies[i]) / (static_cast<double>(size))) >= support)
@@ -544,13 +568,12 @@ class SyncAprioriSSE : public SSE<VectorSSE>
         prune(support, max_threads);
         if (!itemsets.empty())
         {
-            // provisional set of set of string to modify the current itemsets vector with k+1 cardinality
             std::set<unsigned *, Compare> temp;
             std::vector<unsigned *> v_temp;
             unsigned size = transactions.size();
             unsigned itemsets_size = itemsets.size();
 
-            //for every itemset, try to unite it with another in the itemsets vector
+            //Try to unite every itemset with the following ones in the vector
             #pragma omp parallel num_threads(max_threads)
             {
                 #pragma omp for schedule(dynamic, 1)
@@ -564,10 +587,17 @@ class SyncAprioriSSE : public SSE<VectorSSE>
 
                             // if ((static_cast<double>(occurrencies[j]) / (static_cast<double>(size))) >= support)
                             {
+                                //New array to contain the new itemset
                                 unsigned *buf = (unsigned *)_mm_malloc(MASK_SIZE * 16, 16);
                                 unsigned pow_count = 0;
-                                bool inserted = false, next = true;
-                                for (unsigned mask = 0; next && pow_count <= 1 && mask < MASK_SIZE; mask++)
+                                bool inserted = false;
+                                /*For every mask of the two itemsets compute the or (union) and to check if the new itemset has exactly k 1 bits:
+                                1) Compute the xor between one original itemset and the or result and store it in the first half of the check_result array
+                                2) Subtract 1 to every chunk of 32 bits of the xor result.
+                                3) Compute the and operation between the xor result and the sub result and store it in the second half of the check_result array
+                                This computation checks if the 128 bit mask resulting from the xor gives a number that is a power of 2 (only 1 bit set),
+                                which means that in order for the new itemset to have k 1 bits, there must be just one bit set in all masks of the xor result. */
+                                for (unsigned mask = 0; pow_count <= 1 && mask < MASK_SIZE; mask++)
                                 {
                                     unsigned check_result[8];
                                     __m128i m_seti = _mm_load_si128((__m128i*)(itemsets[i])+mask);
@@ -583,12 +613,12 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                                             else
                                             {
                                                 pow_count = 2;
-                                                next = false;
+                                                break;
                                             }
                                     }
                                     _mm_store_si128(((__m128i*)buf)+mask, or_result);
                                 }
-
+                                //If the xor masks produce just 1 bit, the itemset have k 1 bits and can be inserted
                                 if (pow_count == 1)
                                 {
                                     #pragma omp critical(merge_write)
@@ -606,7 +636,7 @@ class SyncAprioriSSE : public SSE<VectorSSE>
                     // }
                 }
                 #pragma omp barrier
-                
+                //De-allocate the old itemsets
                 #pragma omp for schedule(static)
                 for (unsigned i = 0; i < itemsets.size(); i++)
                     _mm_free(itemsets[i]);
