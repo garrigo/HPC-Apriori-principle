@@ -38,13 +38,6 @@ int main(int argc, char* argv[])
     time = end - start;
     std::cout << "SSE Parallel time:             " << time.count() << "\n";
     
-    //SSE SYNC SEQUENTIAL
-    start = std::chrono::system_clock::now();
-    sync_sse.run(file, support, 1);
-    end = std::chrono::system_clock::now();
-    time = end - start;
-    std::cout << "SSE Sync Sequential time:      " << time.count() << "\n";
-
     //SSE SYNC PARALLEL
     sync_sse = SyncAprioriSSE();
     start = std::chrono::system_clock::now();
@@ -67,13 +60,6 @@ int main(int argc, char* argv[])
     end = std::chrono::system_clock::now();
     time = end - start;
     std::cout << "NO-SSE Parallel time:          " << time.count() << "\n";
-
-    //NO-SSE SYNC SEQUENTIAL
-    start = std::chrono::system_clock::now();
-    sync_apriori.run(file, support, 1);
-    end = std::chrono::system_clock::now();
-    time = end - start;
-    std::cout << "NO-SSE Sync Sequential time:   " << time.count() << "\n";
 
     //NO-SSE SYNC PARALLEL
     sync_apriori = SyncApriori();
